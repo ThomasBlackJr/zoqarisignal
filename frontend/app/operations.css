@@ -1,0 +1,181 @@
+.batch-create {
+  padding: 28px;
+  margin-bottom: 28px;
+}
+.employee-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 20px;
+  padding: 28px;
+  margin-bottom: 28px;
+}
+.employee-create h2,
+.employee-create p {
+  flex-basis: 100%;
+}
+.employee-create label {
+  display: grid;
+  gap: 8px;
+}
+.employee-create input[type="checkbox"] {
+  width: auto;
+}
+.assignment-panel {
+  padding: 24px;
+  margin: 24px 0;
+}
+.assignment-panel p {
+  line-height: 1.7;
+  color: #53637a;
+  margin: 10px 0;
+}
+.assignment-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+.employee-insights {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.employee-insights li {
+  line-height: 1.8;
+  margin: 12px 0;
+}
+@media (max-width: 760px) {
+  .employee-insights {
+    grid-template-columns: 1fr;
+  }
+  .assignment-controls > * {
+    width: 100%;
+  }
+  .employee-create label {
+    width: 100%;
+  }
+}
+.batch-create > p {
+  line-height: 1.7;
+  margin: 12px 0;
+}
+.batch-drop {
+  min-height: 160px;
+  margin: 20px 0;
+  width: 100%;
+}
+.batch-selection {
+  max-height: 200px;
+  overflow: auto;
+  padding: 0 20px;
+}
+.batch-selection li {
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+.batch-selection small {
+  color: #64748b;
+}
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin: 28px 0 16px;
+}
+.batch-panel {
+  margin: 20px 0;
+}
+.batch-panel td:first-child {
+  min-width: 220px;
+  max-width: 500px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.batch-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 16px 24px;
+  background: #f1f5f9;
+  border-block: 1px solid #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.batch-note,
+.batch-error {
+  display: block;
+  line-height: 1.6;
+  margin-top: 6px;
+  color: #53637a;
+}
+.batch-error {
+  color: #b91c1c;
+}
+.batch-replace {
+  position: relative;
+  overflow: hidden;
+}
+.batch-replace input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.batch-replace:focus-within {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+.batch-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px 0;
+}
+@media (max-width: 680px) {
+  .batch-create {
+    padding: 20px;
+  }
+  .batch-counts {
+    gap: 12px;
+    padding: 16px;
+  }
+}
+
+.manager-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.manager-picker label {
+  display: grid;
+  gap: 8px;
+}
+@media (max-width: 680px) {
+  .manager-picker,
+  .manager-picker label {
+    width: 100%;
+  }
+}
+
+.admin-controls {
+  margin: 32px 0;
+  padding: 24px;
+  border-top: 3px solid #b42332;
+}
+.button.danger {
+  background: #b42332;
+  color: white;
+  border-color: #b42332;
+}
+.scorecard-picker {
+  margin: 20px 0;
+}
+.scorecard-picker label {
+  display: grid;
+  gap: 8px;
+}

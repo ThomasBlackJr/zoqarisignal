@@ -1,0 +1,146 @@
+.briefing-toolbar,
+.briefing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.briefing-toolbar {
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.briefing-toolbar .dashboard-editor {
+  flex: 1;
+  margin: 0;
+}
+.briefing-toolbar .dashboard-editor > .panel {
+  margin-top: 12px;
+}
+.briefing-footnote {
+  font-size: 12px;
+  margin: 12px 2px 0;
+  color: var(--muted);
+}
+.briefing-attention {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.briefing-attention > a {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 4px 12px;
+  padding: 20px 24px;
+}
+.briefing-attention strong {
+  font-size: 28px;
+  grid-row: span 2;
+}
+.briefing-attention small,
+.briefing-issues small,
+.recommendation-row small {
+  color: var(--muted);
+}
+.briefing-issues {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.briefing-issues article {
+  padding: 22px 24px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.briefing-issues h3,
+.recommendation-row h3 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+.briefing-issues p,
+.recommendation-row p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.briefing-issues .briefing-row > small {
+  max-width: 65%;
+  font-size: 11px;
+}
+.issue-count {
+  font-size: 26px;
+  text-align: right;
+  font-weight: 600;
+}
+.issue-count small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+}
+.recommendation-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  border-top: 1px solid var(--line);
+}
+.block {
+  display: block;
+  margin-top: 5px;
+}
+.briefing-observation {
+  padding: 16px;
+  border-left: 3px solid #4775cf;
+  background: var(--surface);
+  margin: 16px 0;
+}
+.briefing-observation p {
+  line-height: 1.6;
+}
+.coaching-result {
+  margin: 24px 0;
+}
+.communication-form label {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.communication-form textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.6;
+}
+.issue-evidence article {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+  overflow-wrap: anywhere;
+}
+.issue-evidence blockquote {
+  margin: 12px 0;
+  padding-left: 16px;
+  border-left: 2px solid var(--line);
+  font-size: 13px;
+}
+.preserve-lines {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .briefing-issues,
+  .briefing-attention {
+    grid-template-columns: 1fr;
+  }
+  .briefing-toolbar,
+  .recommendation-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .briefing-row {
+    flex-wrap: wrap;
+  }
+  .briefing-issues article,
+  .recommendation-row {
+    padding: 18px;
+  }
+  .briefing-toolbar .dashboard-editor {
+    width: 100%;
+  }
+}
