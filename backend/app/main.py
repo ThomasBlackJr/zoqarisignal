@@ -431,3 +431,4 @@ def create_app(settings: Settings | None = None, services=None):
 
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
+app = create_app()
