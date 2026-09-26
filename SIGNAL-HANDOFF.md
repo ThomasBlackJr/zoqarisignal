@@ -1,3 +1,83 @@
+# Deployment repair — 2026-09-26
+
+This checkpoint supersedes older deployment statements below. Scope: repair Vercel API routing and the confirmed broken branding-image request only. The commercial-beta milestone is not being resumed in this repair. Git is now present; starting HEAD was `4d8a1bc` (clean working tree), after `45585a7` (Services), `2ccae9b` (Python project metadata) and `4d8a1bc` (module-level FastAPI app). Those deployment fixes remain intact. No application endpoints, providers, authentication logic, database schema, workers or corporate-site files changed.
+
+## Root cause and observed deployment
+
+Read-only checks of `https://zoqarisignal-alpha.vercel.app` on 2026-09-26 confirmed:
+
+- `/api/account`, `/api/preferences`, `/api/auth/options`, `/api/health`: HTTP 404, `x-vercel-error: DNS_HOSTNAME_RESOLVED_PRIVATE`.
+- `/login`: HTTP 200.
+- All four `/brand/*.png` assets: HTTP 200 with `image/png`.
+- `/_next/image?url=%2Fbrand%2Fz-mark.png&w=256&q=75`: HTTP 404 (also broken on the current alias, not just the old deployment-specific hostname).
+
+The browser API contract is `/api` plus the existing backend endpoint. This includes `lib/api.ts`, preference loading, multipart XHR single/batch upload, audio playback, and the employee CSV template link. FastAPI exposes unprefixed `/account`, `/preferences`, `/auth/*`, `/calls/*`, etc. Locally, `next.config.ts` rewrites `/api/:path*` to `${BACKEND_URL || "http://127.0.0.1:8000"}/:path*`, removing `/api`.
+
+The original Vercel service rule matched only `/api/backend/(.*)`. Real `/api/*` requests fell through to Next.js and its local proxy. The private-hostname error is consistent with Vercel attempting that loopback destination; remote environment values were not inspected. Changing only the service rule would still fail: service rewrites preserve the original request path, while FastAPI has no `/api` prefix.
+
+## Fix and routing contract
+
+`vercel.json` now sends `/api/(.*)` to `backend` before the frontend catch-all. A **backend service-local** `request.path` transform sets `/$1`, stripping exactly the public prefix before FastAPI sees it. This follows Vercel's [service path-transform example](https://vercel.com/docs/project-configuration/vercel-json#request-path-transform-in-a-service) and current [Services guide](https://vercel.com/kb/guide/vercel-services). `destination.path` alone is not equivalent: it selects a service route but does not change the runtime-visible path. Older `experimentalServices`/`routePrefix` documentation does not describe this repository's current `services` configuration.
+
+| Public request | Service | Runtime path |
+| --- | --- | --- |
+| `/api/account` | backend | `/account` |
+| `/api/preferences` | backend | `/preferences` |
+| `/api/auth/login` | backend | `/auth/login` |
+| `/api/calls/id/audio` | backend | `/calls/id/audio` |
+| `/api/batches/id/items/id/upload` | backend | `/batches/id/items/id/upload` |
+| `/api/billing/webhook` | backend | `/billing/webhook` |
+| `/api/employee-imports/template.csv` | backend | `/employee-imports/template.csv` |
+| `/`, `/login`, `/register`, `/employees`, `/rubrics`, `/upload`, `/team` | frontend | unchanged |
+| `/brand/*`, `/_next/*` | frontend | unchanged |
+
+The same rule covers all **69 OpenAPI paths / 78 operations**, including flags, team/invitations, account/onboarding, preferences, hierarchy, admin, briefing, scorecards and evaluation history. It does not list or duplicate individual endpoints. Methods, body, query, cookies, Origin, request-verification header and Range remain intact. The path transform also preserves the exact backend webhook path used by the existing CSRF exception; Stripe signature verification remains authoritative. Unknown API routes remain backend 404s, not page fallbacks. `/dashboard` is not currently a Next page (the dashboard is `/`); it remains a frontend 404 rather than becoming the backend `/dashboard` API.
+
+Local `next.config.ts`, browser API construction and FastAPI endpoints are unchanged. `frontend/.env.example` now explains that `BACKEND_URL` is for local/non-Services proxying; Vercel's direct service route needs no public backend hostname or frontend API-base variable.
+
+For branding, `components/ui.tsx` uses Next Image's `unoptimized` property on the two existing static PNGs. Requests go directly to the confirmed-working `/brand/z-mark.png` and `/brand/wordmark.png`, avoiding the broken deployed optimizer route. Artwork, layout, dimensions, alt text and CSS are unchanged. This addresses the visible asset failure without altering global image handling or chasing preload warnings; it does not claim Vercel's image optimizer itself was repaired.
+
+Files changed in this repair: `vercel.json`, `frontend/.env.example`, `frontend/components/ui.tsx`, `backend/tests/test_deployment_routing.py`, `frontend/tests/api-routing.spec.ts`, and this handoff.
+
+## Validation
+
+- New routing suite: **21 passed**. Checks every actual FastAPI operation against service selection and prefix stripping, frontend/static exclusions, authenticated account/preferences and representative resources, login cookie, CSRF rejection, multipart upload and ranged audio.
+- Full backend suite: **242 passed, 2 failed**. Both failures were independently reproduced on a temporary clean archive of starting HEAD `4d8a1bc`, with no repair files present. `test_migration_preserves_legacy_transcript` expects downgrade through a populated audit-reference migration that intentionally refuses data loss. `test_employee_edit_deactivation_permissions_and_tenant_scope` round-trips read-only email/external-ID response fields into the strict employee-write schema, receiving 422. These pre-existing beta regressions were documented rather than changing unrelated application behavior or weakening validation.
+- Backend Ruff: passed. Module-level `app.main:app` import: passed, title `Zoqari Signal API`; secure production-settings import and public-options/anonymous-account/preferences checks also passed using dummy SMTP configuration without sending mail. Tests and startup used temporary/in-memory storage, demo providers, disabled external integrations; no live source database was opened for validation, migrated, reset or deleted.
+- Frontend ESLint, TypeScript and production build: passed after the asset change.
+- Browser final run: **6 passed, 1 failed** across `api-routing.spec.ts`, `customer-entry.spec.ts`, and `workflow.spec.ts`. Registration/verification/onboarding, pre-hydration safety, upload/process/playback/mobile, transcript controls and scorecard/review history pass. The existing password-recovery test has a stale exact link selector (`Reset password` versus the rendered `reset your password`); both the test and verification UI are byte-equivalent to HEAD after line-ending normalization. This is a test-selector issue, not evidence that recovery API routing is broken. The new routing/asset browser test already passed: anonymous account/preferences return FastAPI JSON 401 (not routing 404), health/options return 200, page routes stay HTML, and both logos load directly without `/_next/image`.
+- `vercel.json` parsed and validated against the freshly retrieved official `https://openapi.vercel.sh/vercel.json` property schema. The upstream schema advertises draft-04 while containing newer keywords; Ajv meta-schema self-validation was disabled to compile that upstream document, with configuration/property validation retained. This is structural validation, not an actual Vercel deployment.
+- Local mapping tests model documented Vercel routing semantics. They do not execute Vercel's edge. The repair has **not** been pushed or redeployed, so the live alias still requires post-deployment verification.
+
+## Exact next Vercel actions
+
+1. Review, commit and push the six repair files on the branch Vercel deploys. Do not add `.env`, local databases, uploaded recordings, private outbox, traces or credentials. No commit/push/deployment was performed during this repair.
+2. In Vercel, keep the project's Framework Preset **Services**, repository root at the directory containing `vercel.json`, frontend root `frontend/`, backend root `backend/`, entrypoint `app.main:app`. Preserve the Python 3.12 configuration and existing `pyproject.toml` project metadata. Do not replace this with a frontend-only root directory.
+3. No `NEXT_PUBLIC_BACKEND_URL`, `/api/backend` base or public backend hostname is needed. Do not set `BACKEND_URL` to the app's own public `/api` URL (proxy loop). The existing local value remains appropriate only for local development; the Services router now bypasses that proxy for API calls.
+4. Configure the backend's secure runtime settings below before using real accounts/recordings. Keep deployment protected until the storage/worker blockers are resolved. Do not use a development entitlement or local mail as a production workaround.
+5. Redeploy and use the current alias. First request `GET /api/auth/options` (public, no DB requirement in handler), then `GET /api/health` (DB connectivity). In a private window `/api/account` and `/api/preferences` should return **401 JSON**; after valid sign-in they should return **200 JSON**. A 500/503 now indicates backend configuration/startup/storage, not the old Next.js routing 404. Check Vercel backend invocation logs without sharing sensitive environment values.
+6. Verify `/login`, `/register`, `/`, `/employees`, `/rubrics`, `/upload`, `/team`, direct `/brand/*` assets, and authenticated API calls with queries. Browser logo requests should be direct `/brand/*.png`. Use only synthetic data for any upload smoke test until persistence and worker operation are demonstrated. Check a state-changing request has the exact trusted Origin and `X-Drive-Request: 1`; do not relax CORS/CSRF to make it pass.
+7. Once the custom domain is ready, add `signal.zoqari.com` to this same Vercel project and apply only Vercel's actual DNS instructions. Set `FRONTEND_ORIGIN=https://signal.zoqari.com` and update the Stripe webhook address accordingly, then redeploy. Preview URLs need separately scoped configuration; the app intentionally trusts one exact origin, not arbitrary deployment hosts.
+
+## Production infrastructure still required (separate from routing)
+
+Actual remote environment values/credentials were not inspected or changed. These are code/platform requirements, not claims that Thomas has or has not configured a particular external account.
+
+- **Database:** default `DATABASE_URL=sqlite:///./data/drive.db` creates directories and uses a local SQLite/WAL file. Vercel Functions are not a durable shared SQLite host. Use a managed persistent database via `DATABASE_URL` (the installed driver supports `postgresql+psycopg://...`), TLS, suitable connection pooling, backups and a PostgreSQL migration rehearsal. Apply Alembic `upgrade head` in a controlled release job before serving the new app; importing `app` does not migrate schemas. Do not reset the development database or copy private DB files into Git.
+- **Recording storage:** `create_app()` creates `UPLOAD_DIR` at import; ingestion, playback, transcription and cleanup all use local paths. A read-only deployment filesystem can prevent startup. `/tmp` can make an isolated smoke test boot but is ephemeral, instance-local and **not a production storage fix**. Durable private shared/object storage requires a follow-up adapter/deployment decision; the current app has no S3/Blob environment setting that magically makes local audio durable.
+- **Worker:** lifespan starts an in-process daemon thread. Restart recovery changes transcribing/analyzing records to failed; autoscaled API instances can interfere with another instance's work. A serverless response does not guarantee that the thread continues processing. Set `WORKER_ENABLED=false` for Vercel API-only smoke tests, recognizing accepted jobs then remain queued. Real processing needs an explicitly designed durable worker/queue or a supported persistent single-process backend deployment. Also review the in-memory account/login/coaching locks and rate limits before autoscaling. [Vercel's FastAPI runtime scales as a Function](https://vercel.com/docs/frameworks/backend/fastapi); a successful build proves neither durable processing nor persistent files.
+- **Upload limits:** Signal accepts up to 24 MiB, while the documented [Vercel Function payload limit is 4.5 MB](https://vercel.com/docs/functions/limitations). The local Next.js 26 MB proxy setting does not override the platform limit. Larger recording uploads/audio responses need an appropriate durable-storage/direct-transfer or hosting design; no limit workaround was added here.
+- **Production security/origin:** explicitly set `ENVIRONMENT=production`, `COOKIE_SECURE=true`, `DEV_ENTITLEMENTS_ENABLED=false`, `MAIL_DELIVERY=smtp`, and `FRONTEND_ORIGIN=https://zoqarisignal-alpha.vercel.app` while that is the intended origin (no trailing slash). The code's omitted environment default is development; Vercel's deployment label alone does not set this application variable. Production validation rejects insecure cookies, non-HTTPS origins, local mail and development grants. Do not bypass those errors. Browser/backend calls stay same-origin, so no permissive CORS addition is needed.
+- **Authentication secrets:** this application uses random opaque HttpOnly cookie sessions, SHA-256 token hashes and Argon2 passwords in the database. It does not currently require an invented JWT/SESSION_SECRET setting. Database persistence and HTTPS are required for reliable sessions. Keep `SESSION_HOURS` within the existing validated range.
+- **SMTP:** configure `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` (verified sender such as `Zoqari Signal <accounts@zoqari.com>`), TLS network access and provider-required DNS. SMTP uses certificate-verified STARTTLS. No live email delivery was tested; local outbox is forbidden in production.
+- **Stripe:** code already exists in HEAD; it was not expanded in this repair. Configure server-only `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_MODE`, and all six `STRIPE_PRICE_{STARTER,BUSINESS,PRO}_{MONTH,YEAR}` IDs. Hosted Checkout/Portal also need corresponding Stripe account settings. External webhook URL is `https://<app-domain>/api/billing/webhook`, with existing checkout/subscription/invoice events enabled. Current code grants test entitlements only in development and live entitlements only in production; do not enable dev bypass to simulate a paid production account. No Stripe account IDs, secrets or live billing claims were invented.
+- **OpenAI:** for real processing explicitly set `TRANSCRIPTION_PROVIDER=openai`, `QA_PROVIDER=openai`, `OPENAI_API_KEY`, `TRANSCRIPTION_MODEL`, `QA_MODEL`. Existing demo defaults are synthetic. Never place provider credentials in `NEXT_PUBLIC_*`. No paid requests were made in this repair.
+- **Remaining quality/security work:** the two baseline test failures above, external delivery/payment verification, migration/restore rehearsals, shared abuse controls and prior incomplete commercial-beta validation remain open. Routing repair is not a production-readiness certification.
+
+Recommended next step: redeploy the routing repair in a protected environment and confirm FastAPI JSON responses. Then resolve the database/audio/worker hosting decision before accepting customer recordings or paid customers.
+
+---
+
 # Signal handoff — owner dashboard delivered; commercial beta work in progress
 
 ## Owner dashboard checkpoint — 2026-09-23

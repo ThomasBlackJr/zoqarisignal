@@ -9,6 +9,7 @@ export function Brand() {
     <div className="signal-brand">
       <Image
         src="/brand/z-mark.png"
+        unoptimized
         width={120}
         height={134}
         className="signal-mark"
@@ -18,6 +19,7 @@ export function Brand() {
       <span>
         <Image
           src="/brand/wordmark.png"
+          unoptimized
           width={356}
           height={53}
           className="signal-wordmark"
