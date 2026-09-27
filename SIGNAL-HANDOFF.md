@@ -1,3 +1,118 @@
+# Production PostgreSQL preparation — 2026-09-26
+
+This checkpoint supersedes the deployment assumptions below. **Not production ready.** No database, credentials, object store or production worker was provisioned. No production migration was run. The repository changes prepare database configuration and correct two migration defects; a real PostgreSQL rehearsal remains required.
+
+## Confirmed failure and architecture
+
+The supplied Vercel traceback proves import-time `create_app()` called `make_database()` with local SQLite configuration. `Path(filename).parent.mkdir()` attempted to create `data` on Vercel's read-only application filesystem and raised `OSError: [Errno 30]`. The application failed before route handlers/authentication. This explains 500 instead of the normal anonymous 401 for `/api/account` and `/api/preferences`.
+
+Local development/tests retain SQLite, WAL, foreign keys and file persistence. Production requires an explicit managed PostgreSQL `DATABASE_URL`; no SQLite, `/tmp`, in-memory, or fallback database is permitted. SQLAlchemy's existing synchronous engine/session abstraction and `pool_pre_ping` remain. Existing psycopg 3 and Alembic dependencies suffice. Provider URLs starting `postgres://` or `postgresql://` are normalized to `postgresql+psycopg://` while preserving encoded credentials/query parameters. No schema is created at application startup.
+
+`DatabaseSettings` is shared by the app and Alembic. Production rejects absent, malformed, unsupported, hostless or databaseless PostgreSQL configuration before filesystem access. Vercel's `VERCEL=1` additionally requires explicit `ENVIRONMENT=production`; do not override that platform flag to bypass checks. Validation error strings hide input values, and settings repr excludes the database URL. Do not log Settings dumps or Pydantic `.errors()` payloads, which can contain inputs.
+
+Full application Settings deliberately reject Vercel hosting with a clear recording-storage/worker message even after a valid PostgreSQL URL is supplied. The database-only Alembic configuration remains usable. This is an explicit unresolved infrastructure boundary, not a claim that database configuration fixes audio. Outside Vercel, the operator must supply a genuinely persistent audio volume and a long-running, single-process backend. Setting WORKER_ENABLED=false alone does not make this backend Vercel-compatible.
+
+## PostgreSQL migration compatibility and changes
+
+Most existing types, JSON columns, foreign keys, sequence INSERT RETURNING, and PostgreSQL partial-index predicates are portable. Two historical migrations had concrete PostgreSQL defects:
+
+- `c301d927fb02`: tried to drop `pk_qa_evaluations`, but PostgreSQL assigned the original unnamed primary key `qa_evaluations_pkey`.
+- `d402e038ac03`: tried to drop `uq_rubrics_version`, but PostgreSQL assigned the original unnamed unique constraint `rubrics_version_key`.
+
+Both now inspect the real constraint name, retaining the convention fallback for unnamed SQLite constraints. Revision IDs and resulting schema are unchanged. Editing these historical upgrade operations is necessary because a new head migration cannot repair failure before head. Already-applied databases do not rerun these revisions; do not downgrade/restamp them. Existing history-preserving downgrade guards remain intact. Alembic uses database-only settings (no SMTP/OpenAI/audio dependency) and disposes its engine after success/failure.
+
+Compatibility is **not yet certified against a live PostgreSQL server**. The regression test upgrades an initial schema containing synthetic user/call/transcript/evaluation data to head, repeats upgrade, checks original data, audit sequencing and constraints, and verifies anonymous 401 responses. It runs on SQLite and optionally a disposable PostgreSQL database through `SIGNAL_TEST_POSTGRES_URL`. PostgreSQL execution was skipped here because no test endpoint exists and Docker Desktop failed during its own startup. Do not treat engine construction or SQL inspection as a real connection test.
+
+## Recommended external setup
+
+Use [Neon through Vercel Marketplace](https://vercel.com/marketplace/neon), retaining SQLAlchemy/psycopg rather than adopting a different ORM. Create a project in a region near the backend, a dedicated production database/role, and an isolated staging/test database or branch. Preview deployments must not share production customer data or credentials. Configure backup/PITR retention and rehearse restore according to the selected service plan before customer use.
+
+Obtain two connection strings from the provider: pooled for runtime where appropriate, direct/non-pooled for Alembic and integration tests. Neon supports [pooled and direct connections](https://github.com/neondatabase/website/blob/main/content/docs/get-started/connect-neon.md). Use the provider's TLS configuration, retain its sslmode/channel_binding parameters, and prefer certificate/hostname verification (`sslmode=verify-full`) when configured with the provider's supported CA setup. Never disable TLS to resolve connectivity errors. Store actual values only in Vercel/CI secret settings, never this document, Git, commands saved in shell history, browser variables or issue logs.
+
+The migration role needs schema/table/index/sequence creation and alteration privileges. A separate runtime role should have schema USAGE, required table SELECT/INSERT/UPDATE/DELETE, sequence USAGE/SELECT, and matching default privileges for future migration-created objects. Have the database owner configure these grants; do not grant superuser to the application. If using separate roles, rehearse both migration ownership and runtime access in staging.
+
+## Required deployment variables
+
+Set server-side variables for the **backend service** and correct environment scope. Redeploy after changing them. Marketplace-generated `POSTGRES_URL` names are not automatically read by Signal: map the chosen secret to `DATABASE_URL`.
+
+| Variable | Required configuration |
+| --- | --- |
+| `ENVIRONMENT` | `production` on deployed backend, including Vercel preview deployments; use isolated preview infrastructure |
+| `DATABASE_URL` | Actual managed PostgreSQL runtime URL, with provider TLS parameters; common PostgreSQL schemes accepted |
+| `FRONTEND_ORIGIN` | Exact HTTPS browser origin, e.g. `https://zoqarisignal-alpha.vercel.app`; separately scoped preview origin |
+| `COOKIE_SECURE` | `true` |
+| `DEV_ENTITLEMENTS_ENABLED` | `false` |
+| `MAIL_DELIVERY` | `smtp` |
+| `SMTP_HOST`, `SMTP_PORT`, `MAIL_FROM` | Real SMTP service and verified sender; current default port 587 |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | Real provider credentials when required by that SMTP service |
+| `TRANSCRIPTION_PROVIDER`, `QA_PROVIDER` | Both `openai` for real recordings |
+| `OPENAI_API_KEY` | Actual server-side key when using OpenAI |
+| `TRANSCRIPTION_MODEL`, `QA_MODEL` | Supported account-accessible models; current defaults whisper-1 and gpt-4o-mini |
+| `UPLOAD_DIR` | Persistent private mounted audio directory on a suitable backend host; **no valid Vercel-local value exists** |
+| `WORKER_ENABLED` | `true` only on the supported long-running single-process host; no durable Vercel worker exists yet |
+
+`VERCEL` is platform-supplied; do not change it. `SESSION_HOURS` and `MAX_UPLOAD_MB` retain their validated defaults unless intentionally configured. There is no SESSION_SECRET requirement in this implementation: sessions are cryptographically random tokens whose hashes and expiry are stored in the database. SMTP, HTTPS/cookie, entitlement and OpenAI checks remain enforced.
+
+Billing, if enabled for commercial checkout, additionally requires the existing real `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, matching `STRIPE_MODE`, and six `STRIPE_PRICE_{STARTER,BUSINESS,PRO}_{MONTH,YEAR}` values. These are not database prerequisites. No credentials were invented.
+
+Do not put secrets in `NEXT_PUBLIC_*`. The existing Vercel same-origin `/api/*` routing remains unchanged. Moving the backend to a persistent host will require a separately reviewed routing configuration to that host; this task does not silently redirect production traffic.
+
+## Safe production migration procedure
+
+1. Create the isolated PostgreSQL staging/test database first. Inject its **direct** URL as `SIGNAL_TEST_POSTGRES_URL` in a trusted test process. Run from `backend` with the repository's Python environment:
+
+   ```powershell
+   ..\.venv\Scripts\python.exe -m pytest tests/test_database_production.py -q
+   ```
+
+   The PostgreSQL test creates and removes only its own random `signal_test_*` schema. It requires schema creation privileges. Never point this test variable at production. Require an actual PostgreSQL pass, not a skip, before release.
+2. Rehearse the release on staging using the exact code revision intended for production. Confirm runtime role permissions and application workflows against that migrated database on a supported host.
+3. Before production changes, take/verify a database backup or recoverable provider snapshot, confirm database/branch identity and a restore procedure. If any schema already exists, inspect `alembic current` and resolve its history explicitly; do not `stamp head` to hide missing tables.
+4. Use one controlled migration runner, with writers/worker stopped for this release. Inject the **direct production URL as DATABASE_URL**, `ENVIRONMENT=production`, and no local `.env` file. Alembic reads DATABASE_URL; it does not automatically read DATABASE_URL_UNPOOLED or MIGRATION_DATABASE_URL. No SMTP or audio settings are needed in this runner. Run from `backend`:
+
+   ```powershell
+   ..\.venv\Scripts\python.exe -m alembic heads
+   ..\.venv\Scripts\python.exe -m alembic current
+   ..\.venv\Scripts\python.exe -m alembic upgrade head
+   ..\.venv\Scripts\python.exe -m alembic current
+   ```
+
+   Expected repository head at this checkpoint: `o513914dea14`. Require successful exit and matching current/head. Run only one migrator at a time; there is no distributed migration lock. Do not run migrations in each function startup or every preview build. Existing migrations perform data queries, so offline `--sql` is not a substitute for an online rehearsal.
+5. Deploy runtime with its own appropriate database URL only after migration success and the audio/worker hosting boundary is solved. Check anonymous `/api/account` and `/api/preferences` return 401, then authenticated database operations, upload/playback, transcription, saved-transcript QA retry and deletion. A 401 alone does not prove database connectivity because anonymous authentication does not query the database.
+6. On failure, keep traffic stopped and use the verified restore/forward-fix plan. Do not blindly downgrade: migrations intentionally reject destructive loss of audit/history data.
+
+These schema migrations do **not** transfer existing SQLite customer records or audio into PostgreSQL. If existing data must be preserved, keep the original database/audio backup and plan a separate validated import preserving tenant IDs, references, JSON, history and sequence state. Do not overwrite it or assume a new empty managed database contains old calls.
+
+## Persistent recording/audio boundary
+
+Current local-disk assumptions, all separate from PostgreSQL:
+
+- `app/config.py`: `upload_dir` defaults to `./data/audio`.
+- `app/main.py`: eagerly creates that directory; authenticated audio playback joins `storage_name`, checks a local file and serves `FileResponse`/range requests.
+- `app/services/audio.py`: inspects local files, writes streamed uploads with exclusive creation and removes failed partial files.
+- `app/services/ingestion.py`: single and batch ingestion join the local root, hash file contents and unlink duplicate/failed uploads.
+- `app/services/processing.py`: the in-process thread/queue recovers work and passes the local stored path to transcription when no successful transcript exists.
+- `app/services/providers.py`: the transcription protocol takes a Path and the OpenAI adapter opens it as a binary file.
+- `app/services/deletion.py`: pending cleanup resolves a path under the local root and unlinks it; admin routes schedule/attempt cleanup and the worker retries it.
+- `app/models.py`: Call and PendingAudioDeletion store a local `storage_name`; they do not contain object-store bucket/version metadata. Batch routes use the same ingestion path.
+- `app/services/account_mail.py`: development mail outbox uses local files, already forbidden in production. This is not a production mail-storage solution.
+
+For the least architectural change, run the existing backend as one long-running process on a host with a private persistent audio volume and backups, while keeping the frontend on Vercel and PostgreSQL managed. Alternatively, retaining the backend on Vercel requires a separately implemented private object-storage adapter plus durable processing/job execution: authenticated uploads, object metadata, tenant-scoped playback/range access, provider reads, durable deletion/retry, retention and backup/restore. Merely creating a bucket is insufficient. Vercel itself recommends [object storage for persistent writes](https://vercel.com/kb/guide/how-can-i-use-files-in-serverless-functions).
+
+No customer audio may use Vercel's ephemeral filesystem as its system of record. No `/tmp` database/audio fallback, public bucket, discarded recording, or fake successful persistence was added. Database/recording provider abstractions and saved-transcript retry behavior otherwise remain unchanged.
+
+## Verification and remaining work
+
+Before interruption: database configuration/URL changes, both historical migration corrections, production test fixture update and new regression tests were implemented. Targeted run: 51 passed, one PostgreSQL skip. Full run: 254 passed, two pre-existing failures, one PostgreSQL skip. Frontend lint/typecheck/build passed.
+
+On continuation: inspected and retained those changes, restored only build-generated `frontend/next-env.d.ts`, added malformed production URL cases, ensured migration engines are disposed, updated `.env.example` guidance and this handoff. Final validation: backend pytest **259 passed, 2 pre-existing failures, 1 skipped PostgreSQL integration test**; backend Ruff passed; frontend ESLint, TypeScript and production build passed in the completed pre-interruption run (no frontend source changes afterward); `git diff --check` passed. All new database regression cases that could run passed. No live PostgreSQL, production credentials or deployed infrastructure were tested.
+
+The two known full-suite failures predate this work: `test_conversations::test_migration_preserves_legacy_transcript` attempts a downgrade through the intentional populated-audit preservation guard; `test_employee_performance::test_employee_edit_deactivation_permissions_and_tenant_scope` sends read-response-only fields to a strict write schema (422). Neither guard nor API contract was weakened. These must be resolved separately before claiming a green complete suite.
+
+**External boundary / next step:** create the isolated Neon test and production databases, secure their connection strings, and choose persistent backend/audio hosting or authorize a separate object-storage/worker implementation. Do not provide passwords in chat. Supply the disposable test URL through the execution environment to enable the PostgreSQL rehearsal. No production deployment or readiness claim is made by this checkpoint.
+
+---
+
 # Deployment repair — 2026-09-26
 
 This checkpoint supersedes older deployment statements below. Scope: repair Vercel API routing and the confirmed broken branding-image request only. The commercial-beta milestone is not being resumed in this repair. Git is now present; starting HEAD was `4d8a1bc` (clean working tree), after `45585a7` (Services), `2ccae9b` (Python project metadata) and `4d8a1bc` (module-level FastAPI app). Those deployment fixes remain intact. No application endpoints, providers, authentication logic, database schema, workers or corporate-site files changed.

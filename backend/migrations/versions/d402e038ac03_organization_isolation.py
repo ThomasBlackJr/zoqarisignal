@@ -27,8 +27,13 @@ def upgrade():
             batch.alter_column("organization_id", existing_type=sa.String(36), nullable=False)
             batch.create_foreign_key(f"fk_{table}_organization", "organizations", ["organization_id"], ["id"])
             batch.create_index(f"ix_{table}_organization_id", ["organization_id"])
+    version_constraint = next(
+        constraint["name"]
+        for constraint in sa.inspect(op.get_bind()).get_unique_constraints("rubrics")
+        if constraint["column_names"] == ["version"]
+    )
     with op.batch_alter_table("rubrics", naming_convention={"uq": "uq_%(table_name)s_%(column_0_name)s"}) as batch:
-        batch.drop_constraint("uq_rubrics_version", type_="unique")
+        batch.drop_constraint(version_constraint or "uq_rubrics_version", type_="unique")
         batch.create_unique_constraint("uq_rubric_org_version", ["organization_id", "version"])
     op.drop_index("one_active_rubric", table_name="rubrics")
     op.create_index(

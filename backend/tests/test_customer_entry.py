@@ -240,6 +240,7 @@ def test_production_configuration_and_disabled_activation(signed_in, app):
     settings = Settings(
         _env_file=None,
         environment="production",
+        database_url="postgresql+psycopg://test@localhost/signal_test",
         cookie_secure=True,
         frontend_origin="https://signal.example.test",
         mail_delivery="smtp",

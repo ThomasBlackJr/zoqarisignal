@@ -152,8 +152,11 @@ def upgrade():
         sa.text("UPDATE qa_evaluations SET id=call_id, rubric_id=:id WHERE rubric_version='1.0'"), {"id": LEGACY_ID}
     )
     conn.execute(sa.text("UPDATE qa_evaluations SET id=call_id WHERE id IS NULL"))
+    # SQLite reflection supplies a convention name for its unnamed constraint;
+    # PostgreSQL has a real server-assigned name which must be used instead.
+    primary_key = sa.inspect(op.get_bind()).get_pk_constraint("qa_evaluations")["name"]
     with op.batch_alter_table("qa_evaluations", naming_convention={"pk": "pk_%(table_name)s"}) as batch_op:
-        batch_op.drop_constraint("pk_qa_evaluations", type_="primary")
+        batch_op.drop_constraint(primary_key or "pk_qa_evaluations", type_="primary")
         batch_op.alter_column("id", existing_type=sa.String(36), nullable=False)
         batch_op.create_primary_key("pk_qa_evaluations", ["id"])
         batch_op.add_column(sa.Column("reviewed_by", sa.String(36), nullable=True))
