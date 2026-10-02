@@ -74,3 +74,31 @@ class LocalSpeakerRoles:
                 )
             results.append(SpeakerAssignment(speaker_id=identity, speaker_role=role, role_source=source))
         return results
+
+
+def operator_context(turns, name):
+    """Enrich stable turns, without changing source spans or manufacturing speaker IDs.
+
+    Assignment alone is not identity evidence. Require a full-name self-introduction,
+    and reject identities containing conflicting caller cues. No first-speaker heuristic.
+    """
+    if not name or not name.strip():
+        return
+    escaped = r"\s+".join(re.escape(part) for part in name.strip().split())
+    intro = re.compile(r"^" + INTRO + r"(?:my name is|this is|i am|i['’]m)\s+" + escaped + r"(?=$|[\s,.!?;:])", re.I)
+    grouped = {}
+    for index, turn in enumerate(turns):
+        key = turn["speaker_id"] if turn["speaker_id"] is not None else (index,)
+        grouped.setdefault(key, []).append(turn)
+    candidates = []
+    for group in grouped.values():
+        roles = set().union(*(cue_roles(t["text"]) for t in group))
+        if any(intro.search(t["text"].strip()) for t in group) and SpeakerRole.CALLER not in roles:
+            candidates.append(group)
+    # More than one independent identity introducing the same name is ambiguous.
+    if len(candidates) == 1:
+        for turn in candidates[0]:
+            if turn["speaker_role"] == "UNKNOWN":
+                turn["speaker_role"] = "DISPATCHER"
+                turn["role_source"] = "operator_context"
+            turn["operator_identity_supported"] = True

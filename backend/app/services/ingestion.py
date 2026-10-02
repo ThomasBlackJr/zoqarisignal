@@ -9,6 +9,7 @@ from ..models import Call, Organization, identifier
 from .audio import MIME, save_upload
 from .rubric import selected_rubric
 from .flags import audit_reference
+from .assignments import selected_employee, assign_employee
 
 
 def clean_filename(value):
@@ -23,7 +24,7 @@ def file_error(filename, size, limit):
     return None
 
 
-async def ingest(upload, user, settings, db, is_demo, item=None, lease=None, rubric_id=None):
+async def ingest(upload, user, settings, db, is_demo, item=None, lease=None, rubric_id=None, employee_id=None):
     rubric = selected_rubric(db, user.organization_id, rubric_id)
     filename = clean_filename(upload.filename)
     suffix = Path(filename).suffix.lower()
@@ -62,6 +63,8 @@ async def ingest(upload, user, settings, db, is_demo, item=None, lease=None, rub
                     409,
                     "This recording exists with a different scorecard. Open the existing interaction and choose New QA evaluation, or select its scorecard for this batch.",
                 )
+        if not existing:
+            selected_employee(db, user, employee_id)
         call = existing or Call(
             id=call_id,
             filename=filename,
@@ -78,6 +81,7 @@ async def ingest(upload, user, settings, db, is_demo, item=None, lease=None, rub
         if not existing:
             db.add(call)
             audit_reference(db, call)
+            assign_employee(db, call, employee_id, user)
         if item:
             item.call_id = call.id
             item.duplicate = existing is not None

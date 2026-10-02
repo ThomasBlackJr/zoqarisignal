@@ -212,6 +212,8 @@ class ScoreAdjustment(Base):
 
 class UploadBatch(Base):
     __tablename__ = "upload_batches"
+    employee_id: Mapped[str | None] = mapped_column(ForeignKey("employees.id"))
+    employee: Mapped["Employee | None"] = relationship()
     rubric_id: Mapped[str | None] = mapped_column(ForeignKey("rubrics.id"))
     rubric: Mapped["Rubric | None"] = relationship()
     __table_args__ = (UniqueConstraint("organization_id", "request_key", name="uq_batch_request"),)
@@ -346,6 +348,7 @@ class AuditSequence(Base):
 
 class FlagRule(Base):
     __tablename__ = "flag_rules"
+    deleted_at: Mapped[float | None] = mapped_column(Float)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
     phrase: Mapped[str] = mapped_column(String(200))

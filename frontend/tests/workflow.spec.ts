@@ -92,7 +92,7 @@ test("sign in, upload, process, play, review, find later, and log out on mobile"
   await expect(
     page.getByRole("link", { name: /dispatch-review.wav/ }).first(),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
   await expect(
     page
       .locator(".metric")

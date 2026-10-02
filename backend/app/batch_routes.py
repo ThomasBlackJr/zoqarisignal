@@ -13,6 +13,7 @@ from .schemas import StrictModel
 from .services.ingestion import clean_filename, file_error, ingest
 from .services.rubric import selected_rubric
 from .services.entitlements import assert_account_access
+from .services.assignments import selected_employee
 
 router = APIRouter()
 
@@ -23,6 +24,7 @@ class ManifestFile(StrictModel):
 
 
 class Manifest(StrictModel):
+    employee_id: str | None = Field(default=None, min_length=1, max_length=36)
     rubric_id: str | None = Field(default=None, max_length=36)
     request_key: str = Field(min_length=16, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     files: list[ManifestFile] = Field(min_length=1, max_length=100)
@@ -80,6 +82,7 @@ def batch_view(batch):
                 error=error,
                 call_id=item.call_id,
                 duplicate=item.duplicate,
+                employee_name=call.employee.name if call and call.employee else None,
             )
         )
     return dict(
@@ -88,6 +91,8 @@ def batch_view(batch):
         counts=counts,
         items=items,
         rubric_id=batch.rubric_id,
+        employee_id=batch.employee_id,
+        employee_name=batch.employee.name if batch.employee else None,
         scorecard=(f"{batch.rubric.name} · {batch.rubric.version}" if batch.rubric else "Legacy default"),
     )
 
@@ -102,13 +107,17 @@ def create_batch(body: Manifest, request: Request, user=Depends(require("review"
         )
     )
     if existing:
-        if existing.manifest_hash != fingerprint or (
-            body.rubric_id is not None and body.rubric_id != existing.rubric_id
+        if (
+            existing.employee_id != body.employee_id
+            or existing.manifest_hash != fingerprint
+            or (body.rubric_id is not None and body.rubric_id != existing.rubric_id)
         ):
             raise HTTPException(409, "This batch key was used for different files. Start a new batch.")
         return batch_view(existing)
+    selected_employee(db, user, body.employee_id)
     rubric = selected_rubric(db, user.organization_id, body.rubric_id)
     batch = UploadBatch(
+        employee_id=body.employee_id,
         rubric_id=rubric.id,
         organization_id=user.organization_id,
         created_by=user.id,
@@ -199,6 +208,7 @@ async def upload_item(
             item,
             lease,
             rubric_id=batch.rubric_id,
+            employee_id=batch.employee_id,
         )
     except BaseException as exc:
         db.rollback()

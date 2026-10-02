@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { ErrorBox } from "@/components/ui";
+import { ErrorBox, Loading } from "@/components/ui";
 import { useDrive } from "@/components/shell";
 import { Dialog } from "@/components/dialog";
 type Rule = {
@@ -27,6 +27,9 @@ export default function Page() {
     items: Rule[];
     recipients: { id: string; name: string; email: string }[];
   }>({ items: [], recipients: [] });
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<Rule | null>(null);
+  const [confirmScan, setConfirmScan] = useState(false);
   const [draft, setDraft] = useState<Rule>(blank);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -45,10 +48,14 @@ export default function Page() {
       api<typeof notifications>("/flag-notifications"),
     ])
       .then(([rules, notices]) => {
+        setLoading(false);
         setData(rules);
         setNotifications(notices);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        setLoading(false);
+        setError(e.message);
+      });
   }, []);
   if (!["OWNER", "ADMIN"].includes(user.role))
     return (
@@ -91,7 +98,7 @@ export default function Page() {
       {message && <p role="status">{message}</p>}
       <section className="panel">
         <form className="dialog-content account-form" onSubmit={save}>
-          <h2>{draft.id ? "Edit rule" : "Add rule"}</h2>
+          <h2>{draft.id ? "Edit rule" : "Add Flag"}</h2>
           <label>
             Term or phrase
             <input
@@ -159,7 +166,7 @@ export default function Page() {
           </p>
           <div className="form-actions">
             <button className="button primary" disabled={busy}>
-              Save rule
+              {busy ? "Saving…" : draft.id ? "Save changes" : "Add Flag"}
             </button>
             {draft.id && (
               <button
@@ -179,48 +186,95 @@ export default function Page() {
           <button
             className="button secondary"
             disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                let offset: number | null = 0;
-                let total = 0;
-                while (offset !== null) {
-                  const v: { scanned: number; next_offset: number | null } =
-                    await api(`/flag-rules/scan-existing?offset=${offset}`, {
-                      method: "POST",
-                    });
-                  total += v.scanned;
-                  offset = v.next_offset;
-                }
-                setMessage(
-                  `Scanned ${total} interactions. Configured new alerts are queued.`,
-                );
-                await load();
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
+            onClick={() => setConfirmScan(true)}
           >
             Scan existing transcripts
           </button>
         </div>
+        {confirmScan && (
+          <Dialog
+            title="Scan existing transcripts?"
+            onClose={() => !busy && setConfirmScan(false)}
+          >
+            <p>
+              This scans saved transcripts using current rules, without
+              transcription or QA requests. New matches may send configured
+              email alerts. Historical evidence remains intact.
+            </p>
+            <div className="form-actions">
+              <button
+                className="button secondary"
+                disabled={busy}
+                onClick={() => setConfirmScan(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button primary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    let offset: number | null = 0;
+                    let total = 0;
+                    while (offset !== null) {
+                      const v: { scanned: number; next_offset: number | null } =
+                        await api(
+                          `/flag-rules/scan-existing?offset=${offset}`,
+                          {
+                            method: "POST",
+                          },
+                        );
+                      total += v.scanned;
+                      offset = v.next_offset;
+                    }
+                    setMessage(
+                      `Scanned ${total} interactions. Configured new alerts are queued.`,
+                    );
+                    await load();
+                    setConfirmScan(false);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? "Scanning…" : "Confirm scan"}
+              </button>
+            </div>
+          </Dialog>
+        )}
         <div className="dialog-content">
-          {data.items.length ? (
+          {loading ? (
+            <Loading />
+          ) : data.items.length ? (
             data.items.map((r) => (
               <div className="module-option" key={r.id}>
                 <span>
                   {r.phrase} · {r.enabled ? "Enabled" : "Disabled"} ·{" "}
                   {r.notify ? "Email alerts" : "No email alerts"}
                 </span>
-                <button
-                  className="button secondary"
-                  onClick={() => setDraft(r)}
-                >
-                  Edit {r.phrase}
-                </button>
+                <div className="form-actions">
+                  <button
+                    className="button secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setDraft(r);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                  >
+                    Edit {r.phrase}
+                  </button>
+                  <button
+                    className="button danger"
+                    disabled={busy}
+                    onClick={() => setDeleting(r)}
+                  >
+                    Delete {r.phrase}
+                  </button>
+                </div>
               </div>
             ))
           ) : (
@@ -260,6 +314,51 @@ export default function Page() {
           ))}
         </div>
       </section>
+      {deleting && (
+        <Dialog
+          title="Delete flag rule?"
+          onClose={() => !busy && setDeleting(null)}
+        >
+          <p>
+            Delete “{deleting.phrase}” from future matching? Existing flags and
+            audit evidence will remain available in detection history.
+          </p>
+          {error && <ErrorBox message={error} />}
+          <div className="form-actions">
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="button danger"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await api(`/flag-rules/${deleting.id}`, {
+                    method: "DELETE",
+                    body: JSON.stringify({ revision: deleting.revision }),
+                  });
+                  if (draft.id === deleting.id) setDraft(blank);
+                  setDeleting(null);
+                  await load();
+                  setMessage("Rule deleted. Historical evidence is preserved.");
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "Deleting…" : "Delete rule"}
+            </button>
+          </div>
+        </Dialog>
+      )}
       {retry && (
         <Dialog title="Retry notification" onClose={() => setRetry(null)}>
           <p>

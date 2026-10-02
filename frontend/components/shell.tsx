@@ -74,10 +74,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Brand />
           </Link>
           <div className="nav-label">WORKSPACE</div>
-          <nav>
+          <nav aria-label="Workspace">
             {[
-              { href: "/", title: "Overview", Icon: LayoutDashboard },
-              { href: "/calls", title: "Interactions", Icon: Headphones },
+              { href: "/", title: "Dashboard", Icon: LayoutDashboard },
+              { href: "/calls", title: "Calls / Audits", Icon: Headphones },
               { href: "/upload", title: "Upload call", Icon: Upload },
               { href: "/batches", title: "Bulk upload", Icon: Upload },
               { href: "/employees", title: "Employees", Icon: Headphones },
@@ -116,10 +116,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
               Setup guide
             </Link>
             {["OWNER", "ADMIN"].includes(session.user.role) && (
-              <Link href="/team">Team &amp; Access</Link>
+              <Link
+                href="/team"
+                className={pathname.startsWith("/team") ? "active" : ""}
+              >
+                Team &amp; Access
+              </Link>
             )}
             {["OWNER", "ADMIN"].includes(session.user.role) && (
-              <Link href="/flagged-terms">Flagged terms</Link>
+              <Link
+                href="/flagged-terms"
+                className={
+                  pathname.startsWith("/flagged-terms") ? "active" : ""
+                }
+              >
+                Flagged terms
+              </Link>
             )}
             <Link href="/account">Account &amp; access</Link>
           </nav>
@@ -163,8 +175,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
                           : pathname.startsWith("/rubrics")
                             ? "Scorecards"
                             : pathname.startsWith("/calls")
-                              ? "Interactions"
-                              : "Overview"}
+                              ? "Calls / Audits"
+                              : pathname.startsWith("/flagged-terms") ? "Flagged terms" : "Dashboard"}
               </strong>
             </span>
             <span className="workspace-tag">

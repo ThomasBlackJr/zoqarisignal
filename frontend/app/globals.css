@@ -1889,3 +1889,25 @@ progress {
     transition: none !important;
   }
 }
+
+/* Consistent workflow controls; retains Signal's existing palette and type. */
+.operator-picker { border: 0; padding: 0; margin: 1.25rem 0; display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; min-width: 0; }
+.operator-picker legend { font-weight: 650; margin-bottom: .65rem; }
+.operator-picker label { display: grid; gap: .4rem; min-width: 0; }
+.operator-picker > small, .operator-picker > .error-box { grid-column: 1 / -1; }
+.operator-picker input, .operator-picker select { width: 100%; min-width: 0; }
+.check-row { display: flex; gap: .6rem; align-items: center; margin: .75rem 0; }
+.batch-create > h2:not(:first-child) { margin-top: 1.75rem; }
+.speaker-identity { font-size: .85rem; }
+.turn-heading, .form-actions { flex-wrap: wrap; }
+.panel-heading { gap: 1rem; }
+.module-option > span { min-width: 0; overflow-wrap: anywhere; }
+.table-scroll { overscroll-behavior-x: contain; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--blue, #2563eb); outline-offset: 3px; }
+@media (max-width: 700px) {
+  .operator-picker { grid-template-columns: 1fr; }
+  .panel-heading, .module-option { flex-wrap: wrap; }
+  .form-actions { gap: .5rem; }
+  .page-heading h1 { overflow-wrap: anywhere; }
+  .audio-panel audio { width: 100%; min-width: 0; }
+}

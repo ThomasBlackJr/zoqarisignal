@@ -1,3 +1,19 @@
+# Product workflow sprint — 2026-10-01
+
+This checkpoint preserves the production safeguards below and the existing live OpenAI configuration. See [SIGNAL-SPRINT-2026-10-01.md](SIGNAL-SPRINT-2026-10-01.md) for the architecture audit, behavior, changed-file inventory, exact tests and remaining limits.
+
+Delivered: optional audited operator assignment before single/bulk uploads; immutable batch operator intent through retries; conservative operator-name context on existing speaker views and initial QA; flag completion-refresh/timestamp fixes, confirmed tombstone deletion and historical evidence visibility; upload/review/navigation/form polish.
+
+**Migration required before restart:** back up and stop writers, then run `python -m alembic upgrade head` from backend using the project environment. New head is **p624025efb15**, replacing the older head named in the historical PostgreSQL procedure below. New columns: nullable upload_batches.employee_id and flag_rules.deleted_at. No environment variables were added, no `.env` was changed, and no customer database/audio was migrated or deleted during this sprint.
+
+Whisper-1 still does not supply diarization here. UNKNOWN remains valid; manual corrections override inference. QA scores/evidence validation remain strict. Existing batches support individual reassignment; duplicates retain existing call attribution. Flag rule changes do not silently scan old calls or incur transcription/QA charges. Explicit historical scans may queue configured notifications.
+
+Validation: **275 backend tests passed, 2 documented pre-existing failures, 1 PostgreSQL integration skip; 15 browser tests passed, 1 documented pre-existing password-reset selector timeout.** Both new sprint browser cases passed. Browser runner was interrupted only after all outcomes were recorded because test-server teardown lingered. Ruff, ESLint, TypeScript, production build, migration regression checks and routing tests passed. No sprint-related failing tests remain; no paid live OpenAI acceptance run was made. Generated type references were restored, and the diff contains no environment secrets/runtime data.
+
+Production is still not ready: managed PostgreSQL integration verification, persistent audio storage and suitable worker hosting remain prerequisites. Do not interpret local workflow tests as production certification.
+
+---
+
 # Production PostgreSQL preparation — 2026-09-26
 
 This checkpoint supersedes the deployment assumptions below. **Not production ready.** No database, credentials, object store or production worker was provisioned. No production migration was run. The repository changes prepare database configuration and correct two migration defects; a real PostgreSQL rehearsal remains required.

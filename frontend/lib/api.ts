@@ -57,6 +57,7 @@ export type Segment = {
   text: string;
 };
 export type ConversationTurn = {
+  speaker_label?: string;
   inferred_role?: string;
   manual_role?: string | null;
   effective_role?: "DISPATCHER" | "CALLER" | "UNKNOWN";
@@ -67,7 +68,12 @@ export type ConversationTurn = {
   text: string;
   speaker_id: string | null;
   speaker_role: "DISPATCHER" | "CALLER" | "UNKNOWN";
-  role_source: "unknown" | "text_cue" | "speaker_context" | "provided_role";
+  role_source:
+    | "unknown"
+    | "text_cue"
+    | "speaker_context"
+    | "provided_role"
+    | "operator_context";
   confidence: number | null;
   source_start: number;
   source_end: number;

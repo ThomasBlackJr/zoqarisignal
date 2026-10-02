@@ -12,16 +12,23 @@ export function ScorecardPicker({
   onChange: (id: string) => void;
   disabled?: boolean;
 }) {
+  const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Rubric[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
     let alive = true;
     api<Rubric[]>("/rubrics")
       .then((all) => {
-        if (alive) setItems(all.filter((r) => r.status === "ACTIVE"));
+        if (alive) {
+          setItems(all.filter((r) => r.status === "ACTIVE"));
+          setLoading(false);
+        }
       })
       .catch((e) => {
-        if (alive) setError(e.message);
+        if (alive) {
+          setError(e.message);
+          setLoading(false);
+        }
       });
     return () => {
       alive = false;
@@ -53,8 +60,9 @@ export function ScorecardPicker({
       {error && <ErrorBox message={error} />}
       {!items.length && !error && (
         <p>
-          Loading available scorecards. If none appear, an Owner/Admin must
-          publish one in Scorecards.
+          {loading
+            ? "Loading available scorecards…"
+            : "No published scorecards. An Owner/Admin must publish a scorecard before processing recordings."}
         </p>
       )}
     </div>

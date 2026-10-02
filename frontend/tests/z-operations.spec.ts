@@ -54,7 +54,7 @@ test("bulk upload persists ten files and an invalid item, assignment and correct
   await page
     .getByLabel("Scorecard", { exact: true })
     .selectOption({ index: 1 });
-  await page.getByRole("button", { name: "Submit batch" }).click();
+  await page.getByRole("button", { name: "Upload & process" }).click();
   await expect(page.locator(".batch-counts")).toContainText("10 Complete", {
     timeout: 30000,
   });

@@ -53,13 +53,19 @@ export function SpeakerControl({
         aria-label={`Speaker role for turn at ${turn.source_start}`}
         value={effective}
         onChange={(e) => {
-          setScope("turn");
+          setScope(turn.speaker_id !== null ? "speaker" : "turn");
           setError("");
           setRole(e.target.value);
         }}
       >
         {["DISPATCHER", "CALLER", "UNKNOWN"].map((r) => (
-          <option key={r}>{r}</option>
+          <option key={r} value={r}>
+            {r === "DISPATCHER"
+              ? "Agent"
+              : r === "CALLER"
+                ? "Customer / Caller"
+                : "Unknown speaker"}
+          </option>
         ))}
       </select>
       {turn.manual_role && (

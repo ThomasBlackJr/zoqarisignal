@@ -61,7 +61,9 @@ def detect(db, call):
     db.execute(update(Call).where(Call.id == call.id).values(id=Call.id))
     view = corrected_conversation(call.transcript, db)
     rules = db.scalars(
-        select(FlagRule).where(FlagRule.organization_id == call.organization_id, FlagRule.enabled.is_(True))
+        select(FlagRule).where(
+            FlagRule.organization_id == call.organization_id, FlagRule.enabled.is_(True), FlagRule.deleted_at.is_(None)
+        )
     ).all()
     for rule in rules:
         prior = db.scalars(
@@ -72,14 +74,16 @@ def detect(db, call):
         found = []
         for start, end in matches(call.transcript.text, rule.phrase):
             turn = next((t for t in view["turns"] if t["source_start"] <= start < t["source_end"]), None)
+            last_turn = next((t for t in view["turns"] if t["source_start"] < end <= t["source_end"]), None)
+            roles = {t["effective_role"] for t in view["turns"] if t["source_start"] < end and t["source_end"] > start}
             found.append(
                 dict(
                     source_start=start,
                     source_end=end,
                     quote=call.transcript.text[max(0, start - 60) : min(len(call.transcript.text), end + 60)],
-                    role=turn["effective_role"] if turn else "UNKNOWN",
+                    role=next(iter(roles)) if len(roles) == 1 else "UNKNOWN",
                     start=turn.get("start") if turn else None,
-                    end=turn.get("end") if turn else None,
+                    end=last_turn.get("end") if last_turn else None,
                 )
             )
         # Empty snapshots record that a scan happened but are never counted as flags.

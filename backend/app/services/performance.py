@@ -14,6 +14,7 @@ def snapshot_context(db, transcript):
     view = corrected_conversation(transcript, db)
     return {
         "revision": view["revision"],
+        "operator": view.get("operator"),
         "source_fingerprint": view["source_fingerprint"],
         "turns": [
             {
@@ -21,6 +22,8 @@ def snapshot_context(db, transcript):
                 "source_end": t["source_end"],
                 "role": t["effective_role"],
                 "manual": t["manual_role"] is not None,
+                "speaker_id": t["speaker_id"],
+                "label": t["speaker_label"],
             }
             for t in view["turns"]
         ],

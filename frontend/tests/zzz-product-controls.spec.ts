@@ -236,7 +236,7 @@ test("selected scorecards govern single, new and bulk evaluations; delete and ar
       buffer: wav(i),
     })),
   );
-  await page.getByRole("button", { name: "Submit batch" }).click();
+  await page.getByRole("button", { name: "Upload & process" }).click();
   const batch = page
     .locator(".batch-panel")
     .filter({ hasText: "controls-batch-221.wav" });

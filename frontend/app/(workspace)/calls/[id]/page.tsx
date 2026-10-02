@@ -165,11 +165,6 @@ export default function DetailPage({
         onSaved={reload}
       />
       <div className="detail-grid">
-        <FlagEvidence
-          callId={call.id}
-          revision={call.transcript?.conversation?.revision ?? 0}
-          onSeek={seek}
-        />
         <TranscriptViewer
           transcript={call.transcript}
           isDemo={call.is_demo}
@@ -185,6 +180,12 @@ export default function DetailPage({
           processing={busy(call.status)}
         />
       </div>
+      <FlagEvidence
+        callId={call.id}
+        status={call.status}
+        revision={call.transcript?.conversation?.revision ?? 0}
+        onSeek={seek}
+      />
       <AdminControls
         kind="call"
         id={id}

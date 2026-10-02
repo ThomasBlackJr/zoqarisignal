@@ -1,23 +1,28 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, duration } from "@/lib/api";
 import { ErrorBox } from "./ui";
 
 export function FlagEvidence({
   callId,
   revision,
+  status,
   onSeek,
 }: {
   callId: string;
   revision: number;
+  status: string;
   onSeek: (s: number) => void;
 }) {
-  const [history, setHistory] = useState(false);
+  const [history, setHistory] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<
     {
       id: string;
       phrase: string;
       severity: string;
+      rule_deleted?: boolean;
+      rule_revision: number;
       transcript_revision: number;
       matches: {
         quote: string;
@@ -34,17 +39,21 @@ export function FlagEvidence({
     api<{ items: typeof items }>(`/calls/${callId}/flags?history=${history}`)
       .then((v) => {
         if (alive) {
+          setLoading(false);
           setItems(v.items);
           setError("");
         }
       })
       .catch((e) => {
-        if (alive) setError(e.message);
+        if (alive) {
+          setLoading(false);
+          setError(e.message);
+        }
       });
     return () => {
       alive = false;
     };
-  }, [callId, revision, history]);
+  }, [callId, revision, history, status]);
   return (
     <section className="panel">
       <div className="panel-heading">
@@ -66,17 +75,21 @@ export function FlagEvidence({
       </div>
       {error && <ErrorBox message={error} />}
       <div className="dialog-content">
-        {items.length ? (
+        {loading ? (
+          <p role="status">Loading flag evidence…</p>
+        ) : items.length ? (
           items.map((d) => (
             <article key={d.id}>
               <h3>
                 {d.phrase} · {d.severity}
+                {d.rule_deleted ? " · Deleted rule" : ""}
               </h3>
               <small>
                 {d.transcript_revision === revision
                   ? "Current transcript"
                   : "Historical transcript revision"}{" "}
-                · {d.matches.length} occurrences
+                · Rule revision {d.rule_revision} · {d.matches.length}{" "}
+                occurrences
               </small>
               {d.matches.map((m, i) => (
                 <blockquote key={i}>
@@ -89,7 +102,7 @@ export function FlagEvidence({
                       className="button secondary"
                       onClick={() => onSeek(m.start!)}
                     >
-                      Play evidence
+                      Play evidence · {duration(m.start)}
                     </button>
                   )}
                 </blockquote>

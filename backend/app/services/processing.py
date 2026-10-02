@@ -108,8 +108,7 @@ class Processor:
                 if context["source_fingerprint"] != fingerprint(call.transcript.text, call.transcript.segments):
                     raise QAValidationError(QAReason.TRANSCRIPT_CONTEXT)
                 options = {"rubric": items}
-                if context["revision"]:
-                    options["speaker_context"] = context
+                options["speaker_context"] = context
                 result = validate_result(self.qa.evaluate(call.transcript.text, **options), call.transcript.text, items)
                 db.add(
                     Evaluation(

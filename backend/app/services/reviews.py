@@ -1,9 +1,10 @@
 """Derived views and append-only audit projection; originals are never updated."""
 
 from sqlalchemy import select
-from ..models import SpeakerCorrection
+from ..models import SpeakerCorrection, Call
 from .conversations import conversation_for
 from .rubric import rubric_items
+from .speaker_roles import operator_context
 
 
 def rubric_view(rubric):
@@ -75,6 +76,13 @@ def evaluation_view(evaluation):
 
 def corrected_conversation(transcript, db):
     value = conversation_for(transcript)
+    call = db.get(Call, transcript.call_id)
+    operator = (
+        call.employee if call and call.employee and call.employee.organization_id == call.organization_id else None
+    )
+    if operator and value["alignment"] == "exact":
+        operator_context(value["turns"], operator.name)
+    value["operator"] = {"id": operator.id, "name": operator.name} if operator else None
     history = db.scalars(
         select(SpeakerCorrection).where(SpeakerCorrection.call_id == transcript.call_id).order_by(SpeakerCorrection.id)
     ).all()
@@ -85,6 +93,17 @@ def corrected_conversation(transcript, db):
         turn["inferred_role"] = turn["speaker_role"]
         turn["manual_role"] = change.corrected_role if change else None
         turn["effective_role"] = turn["manual_role"] or turn["inferred_role"]
+        turn["speaker_label"] = (
+            f"{operator.name} — Agent"
+            if operator
+            and turn["effective_role"] == "DISPATCHER"
+            and turn.get("operator_identity_supported")
+            else "Agent"
+            if turn["effective_role"] == "DISPATCHER"
+            else "Customer / Caller"
+            if turn["effective_role"] == "CALLER"
+            else "Unknown speaker"
+        )
         turn["corrected_by"] = change.corrected_by if change else None
         turn["corrected_at"] = change.corrected_at if change else None
         turn["corrector_name"] = change.actor.name if change else None

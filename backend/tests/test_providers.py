@@ -79,6 +79,8 @@ def test_corrected_roles_are_separate_from_unchanged_evidence(monkeypatch):
     request = client.responses.parse.call_args.kwargs
     payload = json.loads(request["input"][1]["content"])
     assert payload["transcript_excerpts"] == [{"id": 0, "text": text}]
-    assert payload["speaker_turns"] == [{"role": "CALLER", "manual": True, "text": text}]
+    assert payload["speaker_turns"] == [
+        {"role": "CALLER", "manual": True, "speaker_id": None, "label": None, "text": text}
+    ]
     assert "Never credit the employee" in request["input"][0]["content"]
     assert request["store"] is False

@@ -131,7 +131,7 @@ function CallsContent() {
       <div className="page-heading">
         <div>
           <div className="eyebrow">CONVERSATION RECORDS</div>
-          <h1>Interactions</h1>
+          <h1>Calls / Audits</h1>
           <p>
             Every recording, transcript, and quality review. All in one place.
           </p>

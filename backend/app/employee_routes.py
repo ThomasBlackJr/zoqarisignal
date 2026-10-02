@@ -8,6 +8,7 @@ from .models import Call, Employee, EmployeeAssignment, AdminEvent
 from .schemas import StrictModel
 from .review_routes import lock_call
 from .services.hierarchy import employee_in_org, lock_organization, set_manager
+from .services.assignments import selected_employee, assign_employee
 from .services.performance import current_performance, evaluated_view
 
 router = APIRouter()
@@ -172,19 +173,9 @@ def assign(call_id: str, body: Assignment, user=Depends(require("assign_interact
     call = lock_call(db, call_id, user)
     if call.assignment_revision != body.revision:
         raise HTTPException(409, "Assignment changed. Reload before saving.")
-    if body.employee_id:
-        employee = get_employee(db, body.employee_id, user)
-        if not employee.active:
-            raise HTTPException(409, "Reactivate this employee before assigning new interactions.")
-    if call.employee_id != body.employee_id:
-        db.add(
-            EmployeeAssignment(
-                call_id=call.id, previous_employee_id=call.employee_id, employee_id=body.employee_id, changed_by=user.id
-            )
-        )
-        call.employee_id = body.employee_id
-        call.assignment_revision += 1
-        db.commit()
+    selected_employee(db, user, body.employee_id)
+    assign_employee(db, call, body.employee_id, user)
+    db.commit()
     return {"employee_id": call.employee_id, "revision": call.assignment_revision}
 
 

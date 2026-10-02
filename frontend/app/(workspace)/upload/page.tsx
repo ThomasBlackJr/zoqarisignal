@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useDrive } from "@/components/shell";
+import { OperatorPicker } from "@/components/operator-picker";
 import { ScorecardPicker } from "@/components/scorecard-picker";
 import { ErrorBox } from "@/components/ui";
 
@@ -18,6 +19,7 @@ export default function UploadPage() {
   const { config } = useDrive();
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
+  const [employeeId, setEmployeeId] = useState("");
   const [rubricId, setRubricId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState("");
@@ -78,6 +80,7 @@ export default function UploadPage() {
     const body = new FormData();
     body.append("file", file);
     body.append("rubric_id", rubricId);
+    if (employeeId) body.append("employee_id", employeeId);
     request.send(body);
   }
   return (
@@ -159,6 +162,11 @@ export default function UploadPage() {
               </button>
             </div>
           )}
+          <OperatorPicker
+            value={employeeId}
+            onChange={setEmployeeId}
+            disabled={progress !== null}
+          />
           {error && <ErrorBox message={error} />}
           {progress !== null && (
             <div className="upload-progress" role="status">

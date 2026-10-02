@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, date } from "@/lib/api";
+import { OperatorPicker } from "./operator-picker";
 import { ScorecardPicker } from "./scorecard-picker";
 import { ErrorBox, Loading } from "./ui";
 import { useDrive } from "./shell";
@@ -14,8 +15,10 @@ type Item = {
   error: string | null;
   call_id: string | null;
   duplicate: boolean;
+  employee_name?: string | null;
 };
 type Batch = {
+  employee_name?: string | null;
   scorecard: string;
   id: string;
   created_at: number;
@@ -34,6 +37,8 @@ type Batch = {
 
 export function BatchUpload() {
   const { config } = useDrive();
+  const [employeeId, setEmployeeId] = useState("");
+  const [applyOperator, setApplyOperator] = useState(true);
   const [rubricId, setRubricId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [batches, setBatches] = useState<Batch[] | null>(null);
@@ -128,6 +133,7 @@ export function BatchUpload() {
         body: JSON.stringify({
           request_key: requestKey.current,
           rubric_id: rubricId,
+          employee_id: applyOperator ? employeeId || null : null,
           files: files.map((f) => ({ filename: f.name, size_bytes: f.size })),
         }),
       });
@@ -186,14 +192,17 @@ export function BatchUpload() {
         <div>
           <div className="eyebrow">BATCH INGESTION</div>
           <h1>Bulk upload</h1>
-          <p>A persistent queue for your interaction volume.</p>
+          <p>
+            Select recordings, choose an operator, then review progress in one
+            place.
+          </p>
         </div>
         <Link className="button secondary" href="/upload">
           Single recording
         </Link>
       </div>
       <section className="panel batch-create">
-        <h2>Add recordings</h2>
+        <h2>1. Select recordings and scorecard</h2>
         <ScorecardPicker
           value={rubricId}
           onChange={(id) => {
@@ -252,12 +261,46 @@ export function BatchUpload() {
             </ul>
           </>
         )}
+        <h2>2. Assign an operator</h2>
+        <OperatorPicker
+          value={employeeId}
+          disabled={running}
+          onChange={(id) => {
+            setEmployeeId(id);
+            requestKey.current = null;
+          }}
+        />
+        {employeeId && (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={applyOperator}
+              disabled={running}
+              onChange={(e) => {
+                setApplyOperator(e.target.checked);
+                requestKey.current = null;
+              }}
+            />{" "}
+            Apply selected operator to all new calls
+          </label>
+        )}
+        <p className="muted">
+          Existing duplicate recordings retain their current operator. You can
+          reassign individual calls from their review page.
+        </p>
+        <h2>3. Review and process</h2>
+        <p>
+          {files.length} recordings selected ·{" "}
+          {applyOperator && employeeId
+            ? "Operator applied to every new call"
+            : "Calls will be unassigned"}
+        </p>
         <button
           className="button primary"
           disabled={!files.length || !rubricId || running}
           onClick={submit}
         >
-          {running ? "Sending recordings…" : "Submit batch"}
+          {running ? "Sending recordings…" : "Upload & process"}
         </button>
         <p className="muted">
           Keep this tab open until transfer finishes. After receipt,
@@ -290,8 +333,9 @@ export function BatchUpload() {
               <div>
                 <h3>{batch.counts.total} recordings</h3>
                 <p>
-                  {batch.scorecard} · {date(batch.created_at)} · Batch{" "}
-                  {batch.id.slice(0, 8)}
+                  {batch.scorecard} ·{" "}
+                  {batch.employee_name || "No batch operator"} ·{" "}
+                  {date(batch.created_at)} · Batch {batch.id.slice(0, 8)}
                 </p>
               </div>
               <span>{batch.counts.duplicates} duplicates linked</span>
@@ -309,6 +353,7 @@ export function BatchUpload() {
                 <thead>
                   <tr>
                     <th>Recording</th>
+                    <th>Operator</th>
                     <th>State</th>
                     <th>Action</th>
                   </tr>
@@ -336,6 +381,7 @@ export function BatchUpload() {
                           <small className="batch-error">{item.error}</small>
                         )}
                       </td>
+                      <td>{item.employee_name || "Unassigned"}</td>
                       <td>
                         <span className={"status " + item.status}>
                           {item.status === "pending"

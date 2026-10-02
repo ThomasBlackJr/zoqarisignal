@@ -384,11 +384,18 @@ def create_app(settings: Settings | None = None, services=None):
     async def upload(
         file: UploadFile = File(...),
         rubric_id: str | None = Form(None),
+        employee_id: str | None = Form(None),
         user=Depends(require("review")),
         db=Depends(get_db),
     ):
         call = await ingest(
-            file, user, settings, db, transcription.name == "demo" or qa.name == "demo", rubric_id=rubric_id
+            file,
+            user,
+            settings,
+            db,
+            transcription.name == "demo" or qa.name == "demo",
+            rubric_id=rubric_id,
+            employee_id=employee_id,
         )
         event("upload_received", call.id, size_bytes=call.size_bytes)
         return call_view(call)

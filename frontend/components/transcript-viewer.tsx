@@ -111,7 +111,7 @@ export function TranscriptViewer({
                 ? "Speaker IDs supplied by the transcription provider. "
                 : "Audio speaker separation is unavailable. "}
               Role labels inferred from wording are tentative. Unknown means
-              there is not enough information.
+              there is not enough information. An operator name appears only when a self-introduction supports the mapping; assignment alone does not identify a voice.
               {conversation?.alignment === "full_text_fallback" &&
                 " Showing the original text because reliable segment boundaries are unavailable."}
             </p>
@@ -151,6 +151,11 @@ export function TranscriptViewer({
                       end={turn.end}
                       onSeek={onSeek}
                     />
+                    {turn.speaker_label && (
+                      <strong className="speaker-identity">
+                        {turn.speaker_label}
+                      </strong>
+                    )}
                     {callId && onSaved && conversation?.source_fingerprint ? (
                       <SpeakerControl
                         callId={callId}
@@ -166,7 +171,8 @@ export function TranscriptViewer({
                       </span>
                     )}
                     {turn.role_source === "text_cue" ||
-                    turn.role_source === "speaker_context" ? (
+                    turn.role_source === "speaker_context" ||
+                    turn.role_source === "operator_context" ? (
                       <span className="role-origin">Inferred</span>
                     ) : turn.role_source === "provided_role" ? (
                       <span className="role-origin">Provided role</span>

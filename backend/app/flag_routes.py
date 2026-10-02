@@ -1,3 +1,4 @@
+import time
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import Field, field_validator
@@ -5,6 +6,7 @@ from sqlalchemy import select, update
 from .auth import get_db, require
 from .models import FlagRule, FlagDetection, FlagNotification, Call, User, AdminEvent
 from .schemas import StrictModel
+from .review_schemas import Revision
 from .services.flags import detect, tokens
 from .services.hierarchy import lock_organization
 from .services.performance import transcript_revision
@@ -38,7 +40,9 @@ def rules(user=Depends(require("manage_rubrics")), db=Depends(get_db)):
         "items": [
             rule_view(r)
             for r in db.scalars(
-                select(FlagRule).where(FlagRule.organization_id == user.organization_id).order_by(FlagRule.created_at)
+                select(FlagRule)
+                .where(FlagRule.organization_id == user.organization_id, FlagRule.deleted_at.is_(None))
+                .order_by(FlagRule.created_at)
             )
         ],
         "recipients": [
@@ -56,7 +60,9 @@ def save_rule(db, user, body, existing=None):
     lock_organization(db, user.organization_id)
     if existing and body.revision != existing.revision:
         raise HTTPException(409, "Rule changed. Reload before saving.")
-    all_rules = db.scalars(select(FlagRule).where(FlagRule.organization_id == user.organization_id)).all()
+    all_rules = db.scalars(
+        select(FlagRule).where(FlagRule.organization_id == user.organization_id, FlagRule.deleted_at.is_(None))
+    ).all()
     if not existing and len(all_rules) >= 100:
         raise HTTPException(422, "A maximum of 100 rules is supported.")
     normalized = [t[0] for t in tokens(body.phrase)]
@@ -105,10 +111,41 @@ def create(body: RuleBody, user=Depends(require("manage_rubrics")), db=Depends(g
 @router.put("/flag-rules/{rule_id}")
 def edit(rule_id: str, body: RuleBody, user=Depends(require("manage_rubrics")), db=Depends(get_db)):
     lock_organization(db, user.organization_id)
-    rule = db.scalar(select(FlagRule).where(FlagRule.id == rule_id, FlagRule.organization_id == user.organization_id))
+    rule = db.scalar(
+        select(FlagRule).where(
+            FlagRule.id == rule_id, FlagRule.organization_id == user.organization_id, FlagRule.deleted_at.is_(None)
+        )
+    )
     if rule is None:
         raise HTTPException(404, "Rule not found")
     return save_rule(db, user, body, rule)
+
+
+@router.delete("/flag-rules/{rule_id}")
+def delete_rule(rule_id: str, body: Revision, user=Depends(require("manage_rubrics")), db=Depends(get_db)):
+    lock_organization(db, user.organization_id)
+    rule = db.scalar(
+        select(FlagRule).where(
+            FlagRule.id == rule_id, FlagRule.organization_id == user.organization_id, FlagRule.deleted_at.is_(None)
+        )
+    )
+    if rule is None:
+        raise HTTPException(404, "Rule not found")
+    if rule.revision != body.revision:
+        raise HTTPException(409, "Rule changed. Reload before deleting.")
+    rule.deleted_at, rule.enabled, rule.notify = time.time(), False, False
+    rule.revision += 1
+    db.add(
+        AdminEvent(
+            organization_id=user.organization_id,
+            actor_id=user.id,
+            resource_type="flag_rule",
+            resource_id=rule.id,
+            action="deleted",
+        )
+    )
+    db.commit()
+    return {"message": "Rule deleted. Historical detections and audit evidence are preserved."}
 
 
 @router.post("/flag-rules/scan-existing")
@@ -147,6 +184,7 @@ def flags(call_id: str, history: bool = False, user=Depends(require("review")), 
                 transcript_revision=d.transcript_revision,
                 rule_revision=d.rule_revision,
                 created_at=d.created_at,
+                rule_deleted=db.get(FlagRule, d.rule_id).deleted_at is not None,
             )
             for d in items
             if d.matches

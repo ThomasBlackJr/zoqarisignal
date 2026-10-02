@@ -13,6 +13,7 @@ from .models import (
     ScoreAdjustment,
     SpeakerCorrection,
     UploadItem,
+    UploadBatch,
     AdminEvent,
     PendingAudioDeletion,
     Status,
@@ -114,6 +115,7 @@ def delete_employee(employee_id: str, body: Revision, user=Depends(require("dele
 
     references = {
         "interactions": count(Call, Call.employee_id == employee.id),
+        "batch manifests": count(UploadBatch, UploadBatch.employee_id == employee.id),
         "assignment-history records": count(
             EmployeeAssignment,
             or_(EmployeeAssignment.employee_id == employee.id, EmployeeAssignment.previous_employee_id == employee.id),
