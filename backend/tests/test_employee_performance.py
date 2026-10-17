@@ -53,8 +53,8 @@ def test_employee_edit_deactivation_permissions_and_tenant_scope(signed_in, app,
     call = complete(signed_in, app, wav_bytes)
     e = employee(signed_in, " Alex ")
     assert signed_in.get("/employees?q=Alex&active=true").json()["total"] == 1
-    edited = dict(e, name="Alex updated", active=False)
-    edited.pop("id")
+    edited = {key: e[key] for key in ("name", "title", "active", "revision", "manager_id", "manager_eligible")}
+    edited.update(name="Alex updated", active=False)
     assert signed_in.put("/employees/" + e["id"], json=edited).status_code == 200
     assert signed_in.put("/employees/" + e["id"], json=edited).status_code == 409
     assert (

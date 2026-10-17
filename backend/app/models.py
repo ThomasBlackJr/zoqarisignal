@@ -41,10 +41,43 @@ class Organization(Base):
     entitlement_source: Mapped[str | None] = mapped_column(String(30))
     entitlement_expires_at: Mapped[float | None] = mapped_column(Float)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    beta_access: Mapped["BetaAccess | None"] = relationship(uselist=False)
+
+
+class BetaAccess(Base):
+    __tablename__ = "beta_access"
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    expires_at: Mapped[float | None] = mapped_column(Float)
+
+
+class PlatformAdministrator(Base):
+    __tablename__ = "platform_administrators"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PlatformEvent(Base):
+    __tablename__ = "platform_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True)
+    action: Mapped[str] = mapped_column(String(50))
+    reason: Mapped[str] = mapped_column(String(500))
+    details: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
 class User(Base):
     __tablename__ = "users"
+    first_name: Mapped[str | None] = mapped_column(String(100))
+    last_name: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[float | None] = mapped_column(Float, default=time.time)
+    updated_at: Mapped[float | None] = mapped_column(Float)
+    deactivated_at: Mapped[float | None] = mapped_column(Float)
+    last_session_at: Mapped[float | None] = mapped_column(Float)
+    admin_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
@@ -54,6 +87,7 @@ class User(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     organization: Mapped[Organization | None] = relationship()
+    platform_authority: Mapped["PlatformAdministrator | None"] = relationship(uselist=False)
     calls: Mapped[list["Call"]] = relationship(back_populates="uploader")
 
 
@@ -276,6 +310,7 @@ class EmployeeAssignment(Base):
 
 class Invitation(Base):
     __tablename__ = "invitations"
+    platform_issued: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
     invited_by: Mapped[str] = mapped_column(ForeignKey("users.id"))

@@ -1,18 +1,28 @@
 import { defineConfig } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 process.env.DRIVE_TEST_PASSWORD ??= randomBytes(24).toString("base64url");
 process.env.DRIVE_E2E_MAIL_FOLDER ??= mkdtempSync(
   path.join(tmpdir(), "signal-test-mail-"),
 );
-const python = path.resolve(
+const rootPython = path.resolve(
   "..",
   ".venv",
   process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
 );
+const python =
+  process.env.SIGNAL_TEST_PYTHON ||
+  (existsSync(rootPython)
+    ? rootPython
+    : path.resolve(
+        "..",
+        "backend",
+        ".venv",
+        process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
+      ));
 export default defineConfig({
   testDir: "./tests",
   timeout: 60000,

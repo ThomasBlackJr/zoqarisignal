@@ -75,6 +75,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="nav-label">WORKSPACE</div>
           <nav aria-label="Workspace">
+            {session.user.is_platform_admin && (
+              <Link href="/platform">Zoqari Admin</Link>
+            )}
             {[
               { href: "/", title: "Dashboard", Icon: LayoutDashboard },
               { href: "/calls", title: "Calls / Audits", Icon: Headphones },
@@ -176,7 +179,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                             ? "Scorecards"
                             : pathname.startsWith("/calls")
                               ? "Calls / Audits"
-                              : pathname.startsWith("/flagged-terms") ? "Flagged terms" : "Dashboard"}
+                              : pathname.startsWith("/flagged-terms")
+                                ? "Flagged terms"
+                                : "Dashboard"}
               </strong>
             </span>
             <span className="workspace-tag">

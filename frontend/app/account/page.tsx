@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Account, api, date } from "@/lib/api";
+import { Account, api } from "@/lib/api";
 import { Billing } from "@/components/billing";
 import { AccountFrame } from "@/components/account-frame";
 import { ErrorBox, Loading } from "@/components/ui";
@@ -60,15 +60,20 @@ export default function AccountPage() {
           <p className="muted">
             {account.name} · {account.email}
           </p>
+          {account.is_platform_admin && (
+            <Link className="button primary" href="/platform">
+              Open Zoqari Admin
+            </Link>
+          )}
           <ol className="setup-progress" aria-label="Account setup progress">
             <li className={account.email_verified ? "done" : ""}>
               Verify email
             </li>
             <li className={account.organization_id ? "done" : ""}>
-              Create business
+              Create or join organization
             </li>
             <li className={account.operational_access ? "done" : ""}>
-              Activate access
+              Workspace access
             </li>
           </ol>
           {!account.email_verified ? (
@@ -119,8 +124,11 @@ export default function AccountPage() {
             <>
               <h3>Create your business workspace</h3>
               <p>
-                You will become its Owner. Your data and scorecards belong to
-                this organization.
+                Signal helps your team review calls and improve service quality.
+                Create an organization to become its Owner, manage access, and
+                invite your team. If you were invited, use the link in your
+                invitation email. You can keep your account without creating an
+                organization.
               </p>
               <form className="account-form" onSubmit={organization}>
                 <label htmlFor="business-name">Business name</label>
@@ -140,37 +148,15 @@ export default function AccountPage() {
               <h3>
                 {account.operational_access
                   ? "Your workspace is ready"
-                  : "Operational access required"}
+                  : "Workspace access inactive"}
               </h3>
-              <dl className="access-summary">
-                <div>
-                  <dt>Access state</dt>
-                  <dd>{account.subscription_status}</dd>
-                </div>
-                <div>
-                  <dt>Source</dt>
-                  <dd>
-                    {account.entitlement_source === "development"
-                      ? "Development test entitlement"
-                      : account.entitlement_source?.startsWith("stripe_")
-                        ? "Stripe subscription"
-                        : "No subscription"}
-                  </dd>
-                </div>
-                {account.entitlement_expires_at && (
-                  <div>
-                    <dt>Expires</dt>
-                    <dd>{date(account.entitlement_expires_at)}</dd>
-                  </div>
-                )}
-              </dl>
-              {["OWNER", "ADMIN"].includes(account.role) ? (
-                <Billing />
-              ) : (
-                <p>
-                  Contact your organization Owner or Admin to manage billing.
+              {!account.operational_access && (
+                <p role="status">
+                  {account.access_message ||
+                    "Your organization's access is currently inactive. Please contact your organization owner."}
                 </p>
               )}
+              {account.role === "OWNER" && !account.suspended && <Billing />}
               {account.dev_activation_available && (
                 <div className="development-note">
                   <strong>DEVELOPMENT TEST ACCESS</strong>
@@ -192,14 +178,6 @@ export default function AccountPage() {
                   </button>
                 </div>
               )}
-              {!account.dev_activation_available &&
-                !account.operational_access && (
-                  <p>
-                    Ask the organization owner or local administrator to
-                    configure access. Development activation is disabled in
-                    production.
-                  </p>
-                )}
               {account.operational_access && account.can_review && (
                 <Link
                   className="button primary"

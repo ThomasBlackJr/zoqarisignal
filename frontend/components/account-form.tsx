@@ -79,7 +79,7 @@ export function AccountForm({ kind }: { kind: Kind }) {
       <h2>{titles[kind]}</h2>
       <p className="muted">
         {kind === "register"
-          ? "Start with your business email. Operational access requires a subscription."
+          ? "Create your account, verify your email, then create an organization or accept your team's invitation."
           : kind === "forgot-password"
             ? "Request a link to recover access to your account."
             : "Links expire and can be used once. Confirm below to continue."}

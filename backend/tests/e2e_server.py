@@ -11,8 +11,7 @@ from alembic.config import Config
 
 from app.auth import hasher
 from app.config import Settings
-from app.main import create_app
-from app.models import Role, User, Organization, LEGACY_ORG
+from app.models import Role, User, Organization, LEGACY_ORG, PlatformAdministrator
 
 
 if __name__ == "__main__":
@@ -27,6 +26,9 @@ if __name__ == "__main__":
     os.environ["DEV_ENTITLEMENTS_ENABLED"] = "true"
     os.environ["MAIL_DELIVERY"] = "local"
     os.environ["MAIL_OUTBOX_DIR"] = os.environ["DRIVE_E2E_MAIL_FOLDER"]
+    # Set isolated configuration before importing the module-level application.
+    from app.main import create_app
+
     command.upgrade(Config("alembic.ini"), "head")
     app = create_app(Settings(_env_file=None))
     with app.state.db() as db:
@@ -41,6 +43,26 @@ if __name__ == "__main__":
                 email_verified=True,
                 organization_id="00000000-0000-0000-0000-000000000002",
                 role=Role.ADMIN,
+                password_hash=hasher.hash(os.environ["DRIVE_TEST_PASSWORD"]),
+            )
+        )
+        operator = User(
+            email="platform@example.test",
+            name="Platform Operator",
+            email_verified=True,
+            role=Role.EMPLOYEE,
+            password_hash=hasher.hash(os.environ["DRIVE_TEST_PASSWORD"]),
+        )
+        db.add(operator)
+        db.flush()
+        db.add(PlatformAdministrator(user_id=operator.id, active=True))
+        db.add(
+            User(
+                email="owner@example.test",
+                name="Customer Owner",
+                email_verified=True,
+                organization_id=LEGACY_ORG,
+                role=Role.OWNER,
                 password_hash=hasher.hash(os.environ["DRIVE_TEST_PASSWORD"]),
             )
         )

@@ -12,6 +12,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from .admin_routes import router as admin_router
+from .platform_routes import router as platform_router
+from .platform_user_routes import router as platform_user_router
 from .briefing_routes import router as briefing_router
 from .flag_routes import router as flag_router
 from .import_routes import router as import_router
@@ -107,6 +109,8 @@ def create_app(settings: Settings | None = None, services=None):
 
     app = FastAPI(title="Zoqari Signal API", lifespan=lifespan)
     app.include_router(admin_router)
+    app.include_router(platform_router)
+    app.include_router(platform_user_router)
     app.include_router(briefing_router)
     app.include_router(flag_router)
     app.include_router(import_router)

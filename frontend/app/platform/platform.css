@@ -1,0 +1,88 @@
+.platform-content {
+  padding: 32px;
+  max-width: 1500px;
+  width: 100%;
+}
+.platform-content h1 {
+  margin: 8px 0 16px;
+}
+.platform-content .panel {
+  padding: 24px;
+  margin: 20px 0;
+}
+.platform-actions {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 20px 0;
+}
+.platform-actions label {
+  display: grid;
+  gap: 6px;
+}
+.platform-actions input,
+.platform-actions select {
+  max-width: 100%;
+  min-height: 42px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--ink);
+}
+.platform-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 18px;
+}
+.platform-stats > div {
+  display: grid;
+  gap: 8px;
+  text-transform: capitalize;
+}
+.platform-stats strong {
+  font-size: 30px;
+}
+.platform-shell .sidebar-bottom {
+  display: grid;
+  gap: 14px;
+}
+.platform-content table {
+  min-width: 600px;
+}
+.platform-content td {
+  overflow-wrap: anywhere;
+}
+.platform-content pre {
+  white-space: pre-wrap;
+  max-width: 400px;
+  font-size: 12px;
+}
+.platform-danger { color: #a11b32; border-color: #dba4ae; }
+.platform-danger.primary { background: #a11b32; color: white; }
+.account-form .platform-confirm { display: flex; align-items: center; gap: 10px; }
+.account-form .platform-confirm input { width: 18px; min-height: 18px; height: 18px; }
+@media (max-width: 760px) {
+  .platform-content {
+    padding: 18px;
+  }
+  .platform-shell .sidebar {
+    position: static;
+    width: auto;
+  }
+  .platform-shell {
+    display: block;
+  }
+  .platform-shell .main-wrap {
+    margin-left: 0;
+  }
+  .platform-shell .sidebar nav {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .platform-shell .sidebar-bottom {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}

@@ -73,6 +73,8 @@ def require(permission: str):
 
 def user_view(user):
     return {
+        "is_platform_admin": bool(user.active and user.email_verified and user.platform_authority
+                                  and user.platform_authority.active),
         "id": user.id,
         "email": user.email,
         "name": user.name,

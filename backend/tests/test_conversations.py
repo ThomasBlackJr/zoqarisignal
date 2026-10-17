@@ -249,7 +249,8 @@ def test_migration_preserves_legacy_transcript(tmp_path, monkeypatch):
         row = conn.execute(sql("SELECT text,segments,conversation FROM transcripts WHERE call_id='c'")).one()
         assert row[0] == "Yes." and json.loads(row[1]) == [segment("Yes.")] and row[2] is None
     assert "conversation" in {c["name"] for c in inspect(engine).get_columns("transcripts")}
-    command.downgrade(Config("alembic.ini"), "a2623e115e90")
+    with pytest.raises(RuntimeError, match="Refusing to discard audit references"):
+        command.downgrade(Config("alembic.ini"), "a2623e115e90")
     with engine.connect() as conn:
         assert conn.execute(sql("SELECT text FROM transcripts WHERE call_id='c'")).scalar_one() == "Yes."
     engine.dispose()

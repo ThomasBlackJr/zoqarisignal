@@ -6,6 +6,11 @@ from ..models import Organization
 
 
 def operational_access(organization, settings):
+    if organization is None or organization.suspended:
+        return False
+    beta = organization.beta_access
+    if beta and beta.active and (beta.expires_at is None or beta.expires_at > time.time()):
+        return True
     if organization is None or organization.subscription_status not in {"active", "trialing"}:
         return False
     if not organization.entitlement_expires_at or organization.entitlement_expires_at <= time.time():
@@ -44,6 +49,9 @@ def assert_account_access(user, settings):
     if not user.email_verified:
         raise HTTPException(403, "Verify your email before opening the workspace")
     if not user.organization_id:
-        raise HTTPException(403, "Create your organization before opening the workspace")
+        raise HTTPException(403, "Create an organization or accept an invitation to open a workspace.")
     if not operational_access(user.organization, settings):
-        raise HTTPException(403, "An active subscription or enabled development entitlement is required")
+        raise HTTPException(403, INACTIVE_ACCESS_MESSAGE)
+
+
+INACTIVE_ACCESS_MESSAGE = "Your organization's access is currently inactive. Please contact your organization owner."

@@ -81,7 +81,7 @@ test("customer registers, verifies, creates an isolated business, activates deve
   await page.getByLabel("Business name").fill("Customer Services");
   await page.getByRole("button", { name: "Create organization" }).click();
   await expect(
-    page.getByRole("heading", { name: "Operational access required" }),
+    page.getByRole("heading", { name: "Workspace access inactive" }),
   ).toBeVisible();
   // Direct navigation cannot bypass the backend access boundary.
   await page.goto("/upload");
@@ -167,7 +167,9 @@ test("password recovery uses the real local mail adapter and new password", asyn
   await expect(
     page.getByRole("heading", { name: "Verify your business email" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Reset password", exact: true }).click();
+  await page
+    .getByRole("link", { name: "reset your password", exact: true })
+    .click();
   await page.getByLabel("Business email").fill(email);
   await page.getByRole("button", { name: "Request reset link" }).click();
   await expect(page.getByRole("status")).toContainText("no email was sent");

@@ -1,3 +1,158 @@
+# Platform account administration and Microsoft 365 adapter — 2026-10-16
+
+## Release requirement
+
+New migration `r846247abd17` follows `q735136fac16`. It adds nullable first/last names and account timestamps plus an administrative revision counter. Existing names are preserved, not heuristically split; historical timestamps remain unknown. Apply through the normal reviewed migration process before running this code against a persistent database. No customer/local operational database was migrated during implementation. Alembic revision alone does not establish schema health or that FastAPI and Alembic use the same resolved database.
+
+## Administration behavior
+
+- Existing platform authority remains independent of customer roles. New `/platform/users/{id}` detail and mutation APIs all require an active verified platform administrator; customer Owner/Admin cannot use them. No API grants platform authority or impersonates users.
+- Users directory adds account-status filtering and detail/create links. Details show verification, membership, effective operational permissions, independent platform access, employee/manager link, available timestamps and recent targeted activity. Existing design is retained.
+- Explicitly confirmed, reasoned changes support first/last names, email, status, customer membership/role, employee link, manager assignment, password reset and verification resend. Account edits use revision checks and organization/user mutation locks; stale edits return 409. Managers reuse same-organization eligibility/cycle checks and never confer authorization.
+- User continues to have one organization FK; there is no new parallel membership system. Leaving/changing organizations unlinks the login from its tracked Employee with append-only hierarchy history. Calls, recordings, transcripts, QA, reviews, coaching and original tenant attribution stay intact. No permanent user deletion endpoint was added: deactivation retains historical foreign-key references, audits and employee records. Employee deactivation remains a separate workflow.
+- Account creation sends private one-use verification and password-setup links using an unknown random initial password; no temporary/admin-selected password is exposed. Password reset uses the existing one-use flow and session revocation on redemption. Account APIs never return password hashes, reset links or token values.
+- Email change notifies the old address, normalizes/validates the new address, marks it unverified, sends a fresh verification link and revokes sessions, reset/verification credentials, pending invitations for old/new addresses and pending invitations issued by the target. Owner email changes require transfer first. Active platform-admin email/deactivation requires separate trusted recovery: revoke platform authority through the existing operator CLI before eligible account changes.
+- Deactivation revokes sessions and credentials; reactivation does not restore old credentials. Existing Owner cannot be deactivated, removed or reassigned by generic membership operations. Transfer requires the displayed current Owner ID, an active verified same-organization replacement, explicit confirmation and reason. It atomically changes old Owner to Admin and replacement to Owner, notifies both and revokes both sessions. Old/new IDs, actor, time and reason are audited. Ambiguous/stale Owner state blocks transfer.
+- Replacement-Owner invitation joins the candidate as Admin. A separate confirmed transfer is mandatory after acceptance. The current Owner remains in place. Initial Owner invitation behavior remains distinct.
+- Existing platform Activity records creation (including self-registration/invitation), account/status/email/role/membership changes, credential initiation, hierarchy changes and owner transfers. Account targets link to detail pages. Sensitive credential values are never audit details. Existing organization search/create/details/beta/access/suspension/usage/member/invitation controls remain; organization name editing is now available. Sangoma continues to show not implemented.
+
+## Microsoft 365
+
+See [MICROSOFT-365-SETUP.md](MICROSOFT-365-SETUP.md) for operator setup, permission alternatives, acceptance and failure handling. Local private outbox behavior is preserved. Production Graph app-only mail uses configurable `M365_SENDER`, default `AccountManagement@zoqari.com`, plus `M365_TENANT_ID`, `M365_CLIENT_ID`, `M365_CLIENT_SECRET` and `MAIL_DELIVERY=graph`. Secret comes from deployment secrets, not a mailbox password or source file. Shared templates cover verification, resets, invitations and notices. The adapter caches short-lived tokens privately, fails safely and does not automatically resend uncertain submissions. HTTP 202 means accepted, not delivered.
+
+Preferred authorization is Exchange Application RBAC `Application Mail.Send` scoped to the dedicated mailbox. Do not add broad Entra Mail.Send permission and assume scoped RBAC restricts it: grants are additive. Conventional Graph Mail.Send Application needs tenant admin consent and an independently verified mailbox restriction. No live tenant changes, credentials or mail delivery tests were performed. Entra/Exchange setup, mailbox authorization, secret provisioning/rotation and actual end-to-end delivery remain operator work.
+
+Required mail failures roll back administrative changes, but external sends and database commit are not atomic. Partial notifications/uncertain delivery remain possible; durable transactional outbox and operational delivery monitoring are recommended before wider production use. Active platform administration still needs MFA/step-up and trusted recovery policy; current rate limiting is process-local, not distributed. Preserve existing beta gates and single-process deployment constraints.
+
+## Future architecture observations only
+
+- Sangoma CX 7.12.3-10 / acd1-aws integration is not implemented. Future connections, provider IDs, call IDs and employee mappings must be organization-scoped, separate from login emails. Add authenticated ingestion, deduplication and explicit recording/metadata retention after official API access is available; no endpoints were invented or called.
+- Customer/Ticket/Interaction/Resolution would need separate tenant-scoped identities and evidence/provenance links to retained calls/transcripts. Do not make login User.email the customer identity or overload mutable QA results as resolution evidence. Existing retained history supports this direction; answers must indicate insufficient company evidence.
+- Acoustic work needs original audio/channel/sample metadata, speaker/time alignment, versioned derived measurements, retention/consent policies and validation. Pitch/rate/energy/pauses/overlap cannot be inferred as actual acoustic measurements from transcript sentiment. No acoustic feature was implemented.
+
+## Recommended next sprint
+
+Controlled-beta acceptance of account/owner changes and reviewed migration on the intended runtime database; tenant-scoped Microsoft 365 setup and live delivery verification; MFA/step-up and operator recovery; durable email dispatch/health monitoring and shared rate limiting before wider rollout. Keep Sangoma and customer/acoustic intelligence separate future milestones.
+
+## Validation for this increment
+
+Full backend suite: **332 passed, 1 skipped, 31 warnings in 283.16 seconds**. Skip requires disposable `SIGNAL_TEST_POSTGRES_URL`; warnings are existing Starlette/httpx and Alembic configuration deprecations. Final targeted account/Graph tests, including expanded review/audit/coaching retention and foreign/unverified Owner rejection: **23 passed, 6 warnings in 14.30 seconds**. Ruff, full ESLint, TypeScript and `git diff --check` pass. Final isolated browser run: **7 passed in 1.2 minutes**, covering existing onboarding/recovery/platform controls plus new account lifecycle and confirmed ownership transfer. Desktop/mobile account screenshots reviewed; no page-wide mobile overflow.
+
+Production build in a clean short-path source copy compiled in 28.6 seconds and passed TypeScript in 8.2 seconds, then failed static generation with the previously observed Windows `EPERM mkdir` limitation (`.next/server/app/register.segments/register`). Full build is **not passed**. An earlier concurrent development/build attempt had conflicting generated validator types; clean-copy validation removed that interference. Browser tests were stabilized by semantic select/success-message locators and a longer sign-in navigation assertion. Reusing the same disposable backend across retries correctly hit its request limiter; the final seven-test run used a fresh disposable backend with the limiter unchanged. No real databases or provider accounts were exercised.
+
+---
+
+# Platform administration UX and routing — 2026-10-16
+
+## Diagnosis
+
+The Sprint 1 foundation had separate `platform_administrators` authority and protected platform APIs, but no Next.js `/platform` pages, no platform-aware account response/routing, and no surfaced platform navigation. `accountDestination` used only customer membership/access/review/onboarding, explaining the customer Owner landing. Customer role and platform authority were never equivalent.
+
+Read-only inspection of the configured checkout database found thomasblack@zoqari.com active and verified, with customer OWNER membership, but no platform-authority row. The reported `app.platform_admin` module was absent in this checkout; the existing module was `app.platform_cli`. This is a separate provisioning/runtime-path discrepancy, not proof that the user's reported command failed elsewhere. No real account or customer database was modified or provisioned during this fix.
+
+## Implementation
+
+- Shared user/account views expose `is_platform_admin`, derived from active verified User plus active independent platform authority. Sign-in destination prioritizes `/platform` only when this server-derived flag is true, even with no customer organization or with inactive customer access. Customer roles remain unchanged.
+- New protected `/platform` layout performs a server-side, no-store backend `/platform/session` check using only the existing session cookie. Anonymous users go to login; customer users without platform authority go to Account. Backend failures render an unavailable state, never a privileged shell. All data/mutation APIs independently enforce the existing platform dependency; navigation visibility is not authorization. Configure frontend server-side BACKEND_URL correctly; platform SSR and the existing API proxy use the same backend target.
+- Separate Zoqari Admin shell: Dashboard, Organizations, Users, Activity; platform identity is clearly labeled. Customer workspace/account show an explicit Zoqari Admin link only for platform-authorized accounts. Normal customers retain their existing workspace.
+- Organization UI: search, bounded pagination, creation, details, access/beta expiry, grant/revoke beta, suspend/reactivate, usage counts, customer users, tracked employees, invitations/create/revoke. Mutations use confirmation dialogs and required reasons. Owner invitations retain existing ownership-transfer restrictions. Sangoma status explicitly says not implemented; no invented integration health.
+- User directory: cross-organization search, customer-role and organization filters, account verification/active state, membership and separate platform flag. A tracked manager designation is not a login role. No organization means no customer membership.
+- Activity lists actor name, timestamp, action, organization target, reason and safe details.
+- `app.platform_admin` is now a compatibility entry point delegating to the existing centralized CLI. Both CLI names support email, optional reason and --revoke. CLI grant/revoke atomically revokes existing sessions and changes only platform authority, not passwords or customer membership. No public privilege-grant endpoint exists. Trusted operator execution only; no real-account command was executed.
+
+## API changes / database
+
+New GET `/platform/session`, `/platform/summary`, `/platform/users?q=&role=&organization_id=&offset=`, and `/platform/organizations/{id}/employees?offset=`. Platform session, summaries, directories and activity remain audited. Existing `/platform/activity` adds actor/organization display names. `/account`, `/auth/me` and other shared user views add `is_platform_admin`. Existing organization/beta/suspension/invitation APIs are reused.
+
+No new migration or schema change is required for this UX fix. The User-to-platform-authority ORM relationship uses the existing Sprint 1 table. Required database head remains `q735136fac16`; no migration was applied to the customer database.
+
+## Validation
+
+Full backend: 309 passed, 1 skipped (optional live PostgreSQL integration test), 26 existing dependency/configuration warnings; 178.37 seconds, exit 0. New tests cover org-free platform identity, customer role denial, users/filtering, cross-org administration with unchanged tenant data access, audit and CLI-style session revocation. Ruff, ESLint and TypeScript passed.
+
+Relevant browser tests: 6 passed in 38.7 seconds, exit 0. Cover customer entry/recovery, billing/access copy, platform sign-in, org-free administration, organization creation and access changes, users/activity, platform landing after adding customer Owner membership, and server-side page/API rejection for ordinary Owner/Admin. Desktop/mobile screenshots inspected and mobile document-overflow assertion passed. An initial long validation-path run returned 404 for both pre-existing and new dynamic [id] pages; all six passed in a clean short-path source snapshot. No product route was weakened to address the test environment.
+
+Production build attempted in the clean short-path validation snapshot: compilation succeeded (20.9 seconds) and TypeScript finished (6.3 seconds); static generation failed with Windows EPERM creating `.next/server/app/_not-found.segments/_not-found`. Exit 1. This reproduces the previously documented sandbox build limitation; a complete production build remains required on unrestricted CI/staging. CLI compatibility entry-point --help passed without provisioning any account.
+
+## Manual acceptance / remaining scope
+
+1. Restart backend/frontend using this checkout and current code, keeping existing environment files. Confirm the backend database is at q735136fac16.
+2. From backend, a trusted operator may run `.\.venv\Scripts\python.exe -m app.platform_admin thomasblack@zoqari.com --reason "Platform administration setup"` (or the platform_cli name). This is an explicit privilege grant and revokes sessions; it was not run here.
+3. Sign in again: expect /platform and the PLATFORM navigation, not the customer workspace. Open /platform directly too. Customer Owner membership must remain intact.
+4. Search/create a disposable organization, inspect users/employees/usage, grant a dated beta, revoke it, suspend/reactivate and inspect activity. Invitations use the existing configured mail adapter. Do not expect Sangoma synchronization.
+5. With ordinary Owner/Admin accounts, verify normal workspace routing, no Zoqari Admin entry, /platform redirects to Account, and /api/platform/users or activity returns 403.
+
+No MFA/step-up, membership removal/role editing/ownership transfer, customer-content impersonation, Microsoft 365 configuration, Sangoma integration, deployment, secrets change, commit or push was added. Strong platform authentication and previously documented production blockers still apply.
+
+---
+
+# Controlled beta foundation — 2026-10-16
+
+Sprint 1 extends the existing architecture. It does not certify production readiness. No deployment, live provider requests, secrets changes, customer database migration, commit or push was performed.
+
+## Access and permissions
+
+- Billing status/checkout/portal APIs now require a verified organization OWNER. ADMIN no longer has billing authority. Stripe reconciliation, webhook authentication and existing checkout behavior are retained; webhooks do not depend on an interactive Owner session. Billing remains reachable by an inactive organization's Owner so subscription recovery can work. The account UI never renders billing controls for Admin, Manager, Reviewer, Supervisor or Employee; it hides billing while suspended.
+- Independent `beta_access` holds one current grant per organization, active/revoked state and optional expiration (UTC Unix seconds). Only separate platform authority can grant/revoke it. Null expiration means no automatic expiry; past/nonfinite expiration is rejected. Successful platform operations append actor, organization, action, reason/time and safe details to `platform_events`. Grant events preserve the expiration. Revocation does not modify Stripe/development entitlements, subscriptions, customer records or history. No access is granted automatically on signup or organization creation.
+- Organization suspension overrides every entitlement. Existing sessions still allow account access but cannot authorize operational APIs or private audio. Workers recheck access before transcription and before QA; flags/notification delivery also honors the shared access decision. Interrupted/blocked calls remain explicitly retryable. A request already executing or an external provider call already submitted cannot be recalled; there is no claim of instantaneous cancellation of in-flight work. Successful transcription is preserved if suspension prevents subsequent QA.
+- Inactive member API/account messaging: "Your organization's access is currently inactive. Please contact your organization owner." Customer account copy no longer exposes entitlement-source/expiry implementation details. Organization-free verified accounts remain valid and may create an organization or accept an invitation without being forced into membership.
+- Existing explicit permission policy is retained: OWNER/ADMIN administer their organization; MANAGER reviews organization calls and manages tracked employees/assignments; REVIEWER/SUPERVISOR review; EMPLOYEE has basic account access only. Manager reporting eligibility and Employee/User links never grant login roles, billing, platform authority or ownership. Managers remain organization-wide quality reviewers; own-team-only authorization and an Employee operational workspace are not implemented. Tenant-scoped reporting and existing two-tenant protections are preserved. This explicit boundary avoids inferring authority from reporting relationships or breaking Owner/Admin workflows.
+
+## Separate platform foundation and APIs
+
+`platform_administrators` is independent of User.role and User.organization_id. Every request requires an active, verified account and active platform authority. Customer OWNER/ADMIN never implicitly qualifies. An organization-free platform account can use platform APIs but receives no customer operational bypass. There is no impersonation or View As session.
+
+Trusted local operator provisioning only (not executed on real accounts): from backend, `python -m app.platform_cli <existing-verified-account-email> --reason "Approved operator provisioning"`; add `--revoke` to revoke. This creates no credentials, changes no password or customer membership, and appends an event identifying the trusted local CLI channel/target. No public provisioning endpoint exists. Restrict this command/database access to trusted operators. Platform users currently use existing password/session authentication; MFA/step-up authentication remains a production hardening requirement.
+
+All routes below are under `/platform`, browser-proxied as `/api/platform`. Reads as well as successful mutations are audited. Mutations require a nonblank reason. Lists are bounded/paginated.
+
+- GET `/organizations?q=&offset=`: search/list, access and beta status.
+- POST `/organizations`: name/reason; creates an inactive organization and starter scorecard without silently assigning the platform operator as customer Owner.
+- GET `/organizations/{id}`: details and usage counts. Uploaded = retained Call rows; processed = currently completed calls; QA = all evaluation rows; reviews = evaluation rows with review completion. These are operational snapshots, not lifetime metering or billing counters.
+- GET `/organizations/{id}/members?offset=`: current tenant users/roles/active state.
+- GET `/organizations/{id}/invitations?offset=`: invitation metadata, never tokens.
+- POST `/organizations/{id}/invitations`: email/role/reason; Owner/Admin/Manager/Reviewer/Employee. Uses existing configured mail and hashed, expiring one-use invitation tokens. Platform-issued authority is explicitly marked and rechecked at redemption. Owner invitations are unavailable to customer administrators; platform creation rejects an existing Owner or another unexpired pending Owner invitation. Ownership transfer is deferred.
+- POST `/organizations/{id}/invitations/{invitation_id}/revoke`: reason; scoped pending-invitation revocation.
+- PUT `/organizations/{id}/suspension`: suspended/reason; suspension/reactivation.
+- PUT `/organizations/{id}/beta-access`: expires_at (optional)/reason; grant/replace current beta access.
+- DELETE `/organizations/{id}/beta-access`: JSON reason; revoke only beta access.
+- GET `/activity?offset=`: bounded platform audit history.
+
+Platform invitation creation does not grant an entitlement or overwrite existing membership/passwords. Both new-account and signed-in existing-account acceptance reuse the existing flow. No integration-status claims, member-removal/ownership-transfer API, global user edits, full God Portal UI, or unsafe impersonation was added.
+
+## Membership decision
+
+A separate Membership table is deferred. The current product intentionally supports one customer organization per account; the new platform authority table supports internal/platform accounts without requiring a customer membership or converting tenant Admin to a global role. Existing identity/session/tenant behavior is preserved. Multiple organizations per user, workspace switching and membership lifecycle/ownership transfer require a dedicated later migration and explicit authorization design; they are not prerequisites for the bounded APIs in this sprint. Tracked Employees remain separate from login users.
+
+## Migration and safe operation
+
+New Alembic revision `q735136fac16`, parent `p624025efb15`:
+- Adds `organizations.suspended`, default false for existing organizations.
+- Adds `invitations.platform_issued`, default false for existing invitations.
+- Creates `beta_access`, `platform_administrators`, `platform_events` and audit indexes.
+- Preserves existing users, passwords, sessions, organizations, subscription fields, invitations, recordings, transcripts and evaluations. No default platform privileges or beta grants are seeded.
+- Downgrade refuses populated beta/platform history, platform invitations or active suspension. Restore/forward-fix rather than discard audit history.
+
+Before applying to any real installation, stop writers/worker, back up the database and audio, rehearse on staging, then use one controlled `python -m alembic upgrade head` runner. Expected new head is `q735136fac16`. Do not migrate in each web process startup. No real/local customer database was migrated for this sprint.
+
+## Verification
+
+Backend full suite: 300 passed, 1 skipped (optional live PostgreSQL test), 26 dependency/configuration deprecation warnings. New regression coverage includes Owner-only billing across all roles, production beta without Stripe, expiration/revocation, independent-entitlement preservation, existing-session suspension, worker suspension before transcription and during transcription, platform role separation/authority revocation, organization-free accounts, tenant/membership isolation, Owner invitations and migration preservation/downgrade guards. Ruff passed.
+
+The previously documented backend test defects were corrected in the tests: employee edits submit only writable fields; the old transcript migration test expects the intentional populated-audit downgrade refusal and still verifies transcript retention. A routing test now expects tenant Admin billing denial. No preservation guard or strict schema was weakened. Stripe behavior tests explicitly exercise Owner billing.
+
+Frontend verification: 5 relevant Playwright cases passed in 45.6 seconds (API routing, role-based billing visibility/inactive guidance, protected forms, registration/organization/upload/review, password recovery); final runner exit 0. Ruff, ESLint and TypeScript passed. Production builds were run with both default Turbopack and webpack: compilation and TypeScript succeeded, but static generation failed with Windows EPERM while a worker created a nested `.next/server/app/*.segments/` directory. A final standard build after preparing generated directories still failed at `index.segments/!KHdvcmtzcGFjZSk`. Production build is therefore BLOCKED, not passed. Re-run the complete build on an unrestricted CI/staging host before release. The previously documented browser reset selector was corrected to the existing reset-link label; the new inactive heading expectation was updated.
+
+Validation uses synthetic isolated databases/audio/outboxes with no live OpenAI/Stripe/mail/Sangoma calls. Windows sandbox temporary-directory and generated-build-directory permission problems affected initial attempts; a source-only workspace snapshot (excluding environment files/customer data) was prepared for frontend validation. Browser bootstrap now establishes isolated environment settings before importing the module-level application. Playwright supports the existing backend-local virtual environment or explicit SIGNAL_TEST_PYTHON. An intermediate concurrent dev/build attempt also encountered generated-type interference; serial final builds compiled/typechecked but remained blocked by the filesystem error described above. No frontend runtime environment file was changed.
+
+## Remaining beta blockers / Sprint 2
+
+Production Microsoft 365 OAuth mail, actual delivery/monitoring, isolated PostgreSQL migration/integration pass, private persistent recording storage, one supervised backend process, worker shutdown/recovery operations, shared abuse controls, domain/TLS/proxy verification, backup/restore rehearsal, administrator MFA/step-up, retention policy and approved real-recording acceptance remain outstanding. A valid beta grant alone does not establish production readiness. No Sangoma or acoustic/customer-intelligence features were implemented.
+
+Recommended Sprint 2: production mail and staging reliability. Extend the existing AccountMail interface with scoped Microsoft 365 OAuth delivery, test verification/reset/customer/platform invitations end-to-end, rehearse PostgreSQL and storage/restart/retry/restore on isolated staging, then add the minimum platform UI and strong administrator authentication. Confirm Employee operational needs and manager scope before adding those views. Keep manual upload as the first controlled acceptance path; Sangoma follows documented access and source-idempotency design.
+
+---
+
 # Product workflow sprint — 2026-10-01
 
 This checkpoint preserves the production safeguards below and the existing live OpenAI configuration. See [SIGNAL-SPRINT-2026-10-01.md](SIGNAL-SPRINT-2026-10-01.md) for the architecture audit, behavior, changed-file inventory, exact tests and remaining limits.

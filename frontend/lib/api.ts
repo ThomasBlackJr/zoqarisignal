@@ -1,4 +1,5 @@
 export type User = {
+  is_platform_admin?: boolean;
   organization_name: string | null;
   organization_id: string | null;
   email_verified: boolean;
@@ -9,6 +10,8 @@ export type User = {
 };
 export type Account = User & {
   operational_access: boolean;
+  suspended: boolean;
+  access_message: string | null;
   can_review: boolean;
   subscription_status: string;
   entitlement_source: string | null;
@@ -20,6 +23,7 @@ export type Account = User & {
 };
 
 export function accountDestination(account: Account) {
+  if (account.is_platform_admin) return "/platform";
   if (
     !account.email_verified ||
     !account.organization_id ||
