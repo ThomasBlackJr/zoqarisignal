@@ -183,7 +183,7 @@ export default function AccountPage() {
                 Open workspace
               </Link>
               <p>
-                <Link href="/onboarding">Setup guide (optional)</Link>
+                <Link href="/onboarding">{account.onboarding_completed ? "Review tutorial" : "Tutorial (optional)"}</Link>
               </p>
               <button
                 className="button secondary"

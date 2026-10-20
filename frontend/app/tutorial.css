@@ -1,0 +1,118 @@
+.tutorial-wrap {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.tutorial-progress {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.tutorial-progress > span {
+  white-space: nowrap;
+}
+.tutorial-progress progress {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 5px;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  accent-color: var(--teal);
+  background: var(--surface-alt);
+}
+.tutorial-progress progress::-webkit-progress-bar {
+  background: var(--surface-alt);
+}
+.tutorial-progress progress::-webkit-progress-value {
+  background: var(--teal);
+}
+.tutorial-progress progress::-moz-progress-bar {
+  background: var(--teal);
+}
+.tutorial-body {
+  padding: 28px;
+}
+.tutorial-icon {
+  display: inline-flex;
+  padding: 12px;
+  border-radius: 10px;
+  color: var(--info);
+  background: var(--info-bg);
+  margin-bottom: 16px;
+}
+.tutorial-body h2,
+.tutorial-complete h2 {
+  font-size: 23px;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.tutorial-body h2:focus {
+  outline: none;
+}
+.tutorial-body p,
+.tutorial-complete p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+.tutorial-body .tutorial-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--positive);
+  font-size: 12px;
+}
+.tutorial-controls {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 28px;
+  border-top: 1px solid var(--line);
+}
+.tutorial-dismiss {
+  padding: 0 28px 20px;
+  text-align: right;
+}
+.tutorial-dismiss button {
+  background: none;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tutorial-complete {
+  padding: 28px;
+}
+.tutorial-complete > svg {
+  color: var(--positive);
+  margin-bottom: 12px;
+}
+.tutorial-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+@media (max-width: 480px) {
+  .tutorial-progress,
+  .tutorial-body,
+  .tutorial-controls,
+  .tutorial-complete {
+    padding: 20px;
+  }
+  .tutorial-progress {
+    gap: 16px;
+  }
+  .tutorial-dismiss {
+    padding: 0 20px 16px;
+  }
+  .tutorial-controls .button {
+    flex: 1;
+    justify-content: center;
+  }
+}

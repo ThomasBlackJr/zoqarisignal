@@ -148,15 +148,15 @@ test("customer registers, verifies, creates an isolated business, activates deve
   await expect(
     page.getByText("No payment was taken.", { exact: false }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Setup guide (optional)" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your first quality review" }),
-  ).toBeVisible();
+  await page.getByRole("link", { name: "Tutorial (optional)" }).click();
+  await expect(page.getByRole("heading", { name: "Tutorial" })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
-    path: "test-results/customer-setup-desktop.png",
+    path: "test-results/customer-tutorial-desktop.png",
     fullPage: true,
   });
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Step 2 of 4");
   await page
     .getByRole("link", { name: "Review scorecards", exact: true })
     .click();
@@ -166,9 +166,12 @@ test("customer registers, verifies, creates an isolated business, activates deve
   await expect(
     page.getByRole("button", { name: "Duplicate as draft" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Setup guide" }).click();
+  await page.getByRole("link", { name: "Tutorial", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Step 2 of 4");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await page
-    .getByRole("link", { name: "Upload a recording", exact: true })
+    .getByRole("region", { name: "Signal tutorial", exact: true })
+    .getByRole("link", { name: "Upload call", exact: true })
     .click();
   await page.getByLabel("Choose audio recording").setInputFiles({
     name: "customer-first.wav",
@@ -183,8 +186,12 @@ test("customer registers, verifies, creates an isolated business, activates deve
     timeout: 20000,
   });
   await expect(page.locator(".final-score strong")).toHaveText("90 / 100");
-  await page.getByRole("link", { name: "Setup guide" }).click();
-  await page.getByRole("button", { name: "Finish setup", exact: true }).click();
+  await page.getByRole("link", { name: "Tutorial", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Step 3 of 4");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Finish tutorial", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Dashboard", exact: true }),
   ).toBeVisible();

@@ -12,6 +12,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { api, Account, Config } from "@/lib/api";
+import { useTutorialProgress } from "@/lib/tutorial-progress";
 import { BetaAccessNotice } from "./beta-access";
 import { Appearance } from "./preferences";
 import { Brand, ErrorBox, Loading } from "./ui";
@@ -29,6 +30,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   } | null>(null);
   const [error, setError] = useState("");
   const pathname = usePathname();
+  const tutorial = useTutorialProgress(session?.user ?? null);
   const router = useRouter();
   useEffect(() => {
     let active = true;
@@ -131,12 +133,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <BookOpen size={19} />
               Scorecards
             </Link>
-            <Link
-              href="/onboarding"
-              className={pathname === "/onboarding" ? "active" : ""}
-            >
-              Setup guide
-            </Link>
+            {tutorial.ready &&
+              !tutorial.done &&
+              session.user.can_review &&
+              session.user.organization_id &&
+              !session.user.organization_suspended && (
+                <Link
+                  href="/onboarding"
+                  className={pathname === "/onboarding" ? "active" : ""}
+                >
+                  Tutorial
+                </Link>
+              )}
             {["OWNER", "ADMIN"].includes(session.user.role) && (
               <Link
                 href="/team"
@@ -193,7 +201,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                       : pathname.startsWith("/employees")
                         ? "Employees"
                         : pathname.startsWith("/onboarding")
-                          ? "Setup guide"
+                          ? "Tutorial"
                           : pathname.startsWith("/rubrics")
                             ? "Scorecards"
                             : pathname.startsWith("/calls")
