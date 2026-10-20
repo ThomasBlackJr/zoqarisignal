@@ -32,6 +32,10 @@ def operator(app):
     return client
 
 
+def mutation(admin, user_id, **fields):
+    return {"confirmed": True, "revision": admin.get(f"/platform/users/{user_id}").json()["revision"], **fields}
+
+
 def new_owner(client, app):
     user, code = register(client, app, "owner@uspack.test")
     assert client.post("/auth/verify-email", json={"code": code}).status_code == 200
@@ -113,13 +117,13 @@ def test_admin_verification_reuses_template_and_preserves_pending_challenge(clie
         db.get(VerificationCode, target_id).sent_at -= 61
         db.commit()
     admin = operator(app)
-    result = admin.post(f"/platform/users/{target_id}/verification", json={"reason": "Recipient requested resend"})
+    result = admin.post(f"/platform/users/{target_id}/verification", json=mutation(admin, target_id, reason="Recipient requested resend"))
     assert result.status_code == 200 and set(result.json()) == {"message"}
     assert "222222" not in result.text and challenge not in result.text
     assert client.post("/auth/verify-email", json={"challenge": challenge, "code": "111111"}).status_code == 400
     assert client.post("/auth/verify-email", json={"challenge": challenge, "code": "222222"}).status_code == 200
     assert (
-        admin.post(f"/platform/users/{target_id}/verification", json={"reason": "Already verified"}).status_code == 409
+        admin.post(f"/platform/users/{target_id}/verification", json=mutation(admin, target_id, reason="Already verified")).status_code == 409
     )
 
 
@@ -133,7 +137,7 @@ def test_admin_mail_failure_is_sanitized_and_audited(app):
     app.state.mail = Mock()
     app.state.mail.send.side_effect = RuntimeError("sensitive-provider-credential")
     for suffix in ("verification", "password-reset"):
-        result = admin.post(f"/platform/users/{target_id}/{suffix}", json={"reason": "User requested help"})
+        result = admin.post(f"/platform/users/{target_id}/{suffix}", json=mutation(admin, target_id, reason="User requested help"))
         assert result.status_code == 503 and "sensitive-provider" not in result.text
     with app.state.db() as db:
         events = db.scalars(select(AccountEvent).where(AccountEvent.user_id == target_id)).all()
@@ -155,7 +159,7 @@ def test_account_deactivation_revokes_sessions_and_requires_valid_password_to_di
     assert member.post("/auth/login", json={"email": "member@uspack.test", "password": PASSWORD}).status_code == 200
     assert (
         admin.post(
-            f"/platform/users/{target_id}/status", json={"active": False, "reason": "Pilot member withdrawn"}
+            f"/platform/users/{target_id}/status", json=mutation(admin, target_id, active=False, reason="Pilot member withdrawn")
         ).status_code
         == 200
     )
@@ -165,7 +169,7 @@ def test_account_deactivation_revokes_sessions_and_requires_valid_password_to_di
     assert result.status_code == 403 and "inactive" in result.json()["detail"]
     assert (
         admin.post(
-            f"/platform/users/{target_id}/status", json={"active": True, "reason": "Access restored"}
+            f"/platform/users/{target_id}/status", json=mutation(admin, target_id, active=True, reason="Access restored")
         ).status_code
         == 200
     )
@@ -248,7 +252,7 @@ def test_suspension_blocks_worker_and_only_owner_requires_pause_before_deactivat
     call_id = client.post("/calls", files={"file": ("test.wav", wav_bytes, "audio/wav")}).json()["id"]
     assert (
         admin.post(
-            f"/platform/users/{owner['id']}/status", json={"active": False, "reason": "Protect ownership"}
+            f"/platform/users/{owner['id']}/status", json=mutation(admin, owner["id"], active=False, reason="Protect ownership")
         ).status_code
         == 409
     )
@@ -270,7 +274,7 @@ def test_suspension_blocks_worker_and_only_owner_requires_pause_before_deactivat
         assert db.get(Call, call_id).failed_stage == "entitlement"
     assert (
         admin.post(
-            f"/platform/users/{owner['id']}/status", json={"active": False, "reason": "Suspended owner"}
+            f"/platform/users/{owner['id']}/status", json=mutation(admin, owner["id"], active=False, reason="Suspended owner")
         ).status_code
         == 200
     )
@@ -287,11 +291,11 @@ def test_privileged_mutations_require_reason_and_reject_role_actor_or_email_forg
         ).status_code
         == 422
     )
-    assert admin.post(f"/platform/users/{user['id']}/email", json={"email": "attacker@bad.test"}).status_code == 404
+    assert admin.put(f"/platform/users/{user['id']}/email", json={"email": "attacker@bad.test"}).status_code == 422
     assert (
         admin.post(
             f"/platform/users/{admin.get('/auth/me').json()['id']}/status",
-            json={"active": False, "reason": "Self lockout"},
+            json=mutation(admin, admin.get("/auth/me").json()["id"], active=False, reason="Self lockout"),
         ).status_code
         == 409
     )
@@ -300,7 +304,7 @@ def test_privileged_mutations_require_reason_and_reject_role_actor_or_email_forg
 def test_platform_initiated_password_reset_keeps_existing_session_until_redeemed(app, client):
     owner, _ = new_owner(client, app)
     admin = operator(app)
-    result = admin.post(f"/platform/users/{owner['id']}/password-reset", json={"reason": "Owner requested recovery"})
+    result = admin.post(f"/platform/users/{owner['id']}/password-reset", json=mutation(admin, owner["id"], reason="Owner requested recovery"))
     assert result.status_code == 200 and set(result.json()) == {"message"}
     assert client.get("/account").status_code == 200
     token = mail_token(app, "reset", "owner@uspack.test")

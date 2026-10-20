@@ -13,7 +13,8 @@ from .account_schemas import Email, Registration, Token
 from .auth import current_user, find_user, get_db, hasher, require, token_hash, user_view
 from .logging import event
 from .services.account_audit import account_event
-from .models import Invitation, Organization, User
+from .models import PlatformAdministrator, PlatformEvent, Invitation, Organization, User
+from .services.hierarchy import lock_organization
 
 router = APIRouter()
 
@@ -121,28 +122,36 @@ def resolve(db, token=None, consume=False, *, invitation_id=None, email=None):
         Invitation.status == "pending",
         Invitation.expires_at > time.time(),
     )
-    if consume:
+    value = db.scalar(select(Invitation).where(*conditions))
+    if consume and value:
+        # Serialize acceptance with organization/owner and invitation mutations.
+        lock_organization(db, value.organization_id)
+        db.execute(update(User).where(User.id == value.invited_by).values(active=User.active))
         invitation_id = db.execute(
             update(Invitation).where(*conditions).values(status="accepted").returning(Invitation.id)
         ).scalar_one_or_none()
-        value = db.get(Invitation, invitation_id) if invitation_id else None
-    else:
-        value = db.scalar(select(Invitation).where(*conditions))
+        value = db.get(Invitation, invitation_id, populate_existing=True) if invitation_id else None
+        if (
+            value
+            and value.role == "OWNER"
+            and db.scalar(select(User.id).where(User.organization_id == value.organization_id, User.role == "OWNER"))
+        ):
+            raise HTTPException(409, "Organization already has an Owner; request a confirmed ownership transfer.")
     inviter = db.get(User, value.invited_by) if value else None
     authority = db.get(PlatformAdministrator, inviter.id) if inviter and value.platform_issued else None
-    authorized = bool(inviter and (
-        (value.platform_issued and authority and authority.active and inviter.email_verified)
-        or (not value.platform_issued and inviter.organization_id == value.organization_id
-            and inviter.role in {"OWNER", "ADMIN"} and value.role != "OWNER")
-    ))
-    if (
-        not value
-        or not inviter
-        or not inviter.active
-        or not inviter.email_verified
-        or inviter.organization_id != value.organization_id
-        or inviter.role not in {"OWNER", "ADMIN"}
-    ):
+    authorized = bool(
+        inviter
+        and (
+            (value.platform_issued and authority and authority.active and inviter.email_verified)
+            or (
+                not value.platform_issued
+                and inviter.organization_id == value.organization_id
+                and inviter.role in {"OWNER", "ADMIN"}
+                and value.role != "OWNER"
+            )
+        )
+    )
+    if not value or not inviter or not inviter.active or not inviter.email_verified or not authorized:
         raise HTTPException(400, "Invitation is invalid, expired, revoked, or already accepted.")
     return value
 
@@ -162,7 +171,6 @@ def accept(body: Token, user=Depends(current_user), db=Depends(get_db)):
     value = resolve(db, body.token, consume=True)
     if user.email != value.email:
         raise HTTPException(403, "Sign in with the invited email address.")
-    previous_role = user.role
     changed = db.execute(
         update(User)
         .where(User.id == user.id, User.organization_id.is_(None), User.active.is_(True))
@@ -216,6 +224,16 @@ def register(body: Join, request: Request, response: Response, db=Depends(get_db
         value.accepted_by = user.id
         value.accepted_at = time.time()
         account_event(db, "invitation_account_created", user=user, actor=user)
+        if value.platform_issued:
+            db.add(
+                PlatformEvent(
+                    actor_id=value.invited_by,
+                    organization_id=value.organization_id,
+                    action="user.created",
+                    reason="Platform invitation accepted",
+                    details={"user_id": user.id, "invitation_id": value.id},
+                )
+            )
         issue_session(db, user, request, response)
     except IntegrityError:
         db.rollback()

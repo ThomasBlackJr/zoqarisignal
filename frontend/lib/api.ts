@@ -10,6 +10,7 @@ export type User = {
 };
 export type Account = User & {
   operational_access: boolean;
+  access_expires_at?: number | null;
   suspended: boolean;
   access_message: string | null;
   can_review: boolean;
@@ -31,6 +32,7 @@ export type Account = User & {
 
 export function accountDestination(account: Account) {
   if (!account.email_verified) return "/verify-email";
+  if (account.is_platform_admin) return "/platform";
   return "/";
 }
 export type Call = {

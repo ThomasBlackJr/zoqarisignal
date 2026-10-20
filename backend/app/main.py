@@ -46,6 +46,7 @@ from .services.verification import issue_code
 from .services.account_mail import build_mail
 from .services.account_audit import account_event
 from .platform_routes import router as platform_router
+from .platform_user_routes import router as platform_user_router
 from typing import Literal
 
 
@@ -131,6 +132,7 @@ def create_app(settings: Settings | None = None, services=None):
     app.include_router(team_router)
     app.include_router(preference_router)
     app.include_router(platform_router)
+    app.include_router(platform_user_router)
     app.state.settings = settings
     app.state.coaching = build_coaching(settings)
     app.state.coaching_lock = threading.Lock()

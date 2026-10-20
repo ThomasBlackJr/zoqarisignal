@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Account, api, date } from "@/lib/api";
+import { Billing } from "@/components/billing";
 import { AccountFrame } from "@/components/account-frame";
 import { ErrorBox, Loading } from "@/components/ui";
 
@@ -54,6 +55,7 @@ export default function AccountPage() {
     }
   }
   const invites = account?.pending_invitations || [];
+  const expiresAt = account?.access_expires_at !== undefined ? account.access_expires_at : account?.entitlement_expires_at;
   return (
     <AccountFrame>
       <div className="eyebrow">YOUR SIGNAL ACCOUNT</div>
@@ -128,7 +130,7 @@ export default function AccountPage() {
                   <h3>Create your business workspace</h3>
                   <p>
                     You will become its Owner. If your team invited you, use
-                    that invitation to join its existing workspace.
+                    that invitation to join its existing workspace. You can keep your account without creating an organization.
                   </p>
                   <form
                     className="account-form"
@@ -162,17 +164,15 @@ export default function AccountPage() {
                   ? "Organization access is paused. Contact your administrator."
                   : account.operational_access
                     ? "Your organization has Beta Access to call analysis."
-                    : "Your organization does not currently have Beta Access to call analysis. Contact your administrator."}
+                    : account.access_message || "Your organization does not currently have Beta Access to call analysis. Contact your administrator."}
               </p>
               <p>
                 Your account remains active. You can use the normal Signal
                 dashboard.
               </p>
-              {account.entitlement_expires_at && (
-                <p>Expiration: {date(account.entitlement_expires_at)}</p>
-              )}
+              {expiresAt && <p>Expiration: {date(expiresAt)}</p>}
               {account.operational_access &&
-                !account.entitlement_expires_at && <p>Expiration: Never</p>}
+                !expiresAt && <p>Expiration: Never</p>}
               {!account.can_review && (
                 <p>
                   Your role does not allow call upload or organization-wide
@@ -192,6 +192,7 @@ export default function AccountPage() {
               >
                 Check access again
               </button>
+              {account.role === "OWNER" && !account.suspended && <Billing />}
               {account.dev_activation_available && (
                 <div className="development-note">
                   <strong>DEVELOPMENT TEST ACCESS</strong>

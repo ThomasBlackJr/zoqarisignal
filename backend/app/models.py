@@ -43,6 +43,25 @@ class Organization(Base):
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     transcription_vocabulary: Mapped[dict | None] = mapped_column(JSON)
     suspended: Mapped[bool] = mapped_column(Boolean, default=False)
+    beta_access: Mapped["BetaAccess | None"] = relationship(uselist=False)
+
+
+class BetaAccess(Base):
+    __tablename__ = "beta_access"
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    expires_at: Mapped[float | None] = mapped_column(Float)
+
+
+class PlatformEvent(Base):
+    __tablename__ = "platform_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True)
+    action: Mapped[str] = mapped_column(String(50))
+    reason: Mapped[str] = mapped_column(String(500))
+    details: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
 class User(Base):

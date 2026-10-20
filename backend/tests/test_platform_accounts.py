@@ -20,7 +20,8 @@ from .test_supervisor_controls import other_tenant, complete
 @pytest.fixture
 def admin(signed_in, app):
     with app.state.db() as db:
-        set_authority(db, "admin@example.test", True, "Synthetic administration")
+        set_authority(db, "admin@example.test", reason="Synthetic administration")
+    assert signed_in.post("/auth/login", json={"email": "admin@example.test", "password": "test-password-only"}).status_code == 200
     return signed_in
 
 
@@ -199,12 +200,20 @@ def test_reset_verification_and_email_change_revoke_credentials(admin, app):
     )
     with app.state.db() as db:
         assert not db.scalar(select(Session).where(Session.user_id == uid))
-    verify = token(app, "verify", "new@example.test")
+    from .test_customer_entry import mail_token
+    verify = mail_token(app, "verify", "new@example.test")
+    with app.state.db() as db:
+        from app.models import VerificationCode
+        db.get(VerificationCode, uid).sent_at -= 61
+        db.commit()
     assert admin.post(f"/platform/users/{uid}/verification", json=body(admin, uid)).status_code == 200
-    # Resending replaces the previously-issued verification link.
-    assert admin.post("/auth/verify-email", json={"token": verify}).status_code == 400
-    verify = token(app, "verify", "new@example.test")
-    assert admin.post("/auth/verify-email", json={"token": verify}).status_code == 200
+    # Resending replaces the old code; only the authenticated recipient redeems it.
+    from fastapi.testclient import TestClient
+    recipient = TestClient(app, headers={"X-Drive-Request": "1", "Origin": "http://localhost:3000"})
+    assert recipient.post("/auth/login", json={"email": "new@example.test", "password": "test-password-only"}).status_code == 200
+    assert recipient.post("/auth/verify-email", json={"code": verify}).status_code == 400
+    verify = mail_token(app, "verify", "new@example.test")
+    assert recipient.post("/auth/verify-email", json={"code": verify}).status_code == 200
     with app.state.db() as db:
         assert db.get(User, uid).email_verified
 
@@ -290,7 +299,8 @@ def test_create_account_sends_setup_without_exposing_passwords(admin, app):
     )
     assert r.status_code == 201 and r.json()["organization_id"] is None and not r.json()["email_verified"]
     assert "password_hash" not in r.text and "token_hash" not in r.text
-    assert token(app, "verify", "created@example.test") and token(app, "reset", "created@example.test")
+    from .test_customer_entry import mail_token
+    assert mail_token(app, "verify", "created@example.test") and token(app, "reset", "created@example.test")
     assert admin.get("/platform/users?status=unverified").json()["total"] == 1
 
 

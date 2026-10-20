@@ -27,7 +27,7 @@ test("trusted pilot grant opens the existing workspace without billing and revok
   const database = path
     .join(process.env.DRIVE_E2E_DB_FOLDER!, "drive.db")
     .replaceAll("\\", "/");
-  const python = path.resolve(
+  const python = process.env.SIGNAL_TEST_PYTHON || path.resolve(
     "..",
     ".venv",
     process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
@@ -87,5 +87,5 @@ test("trusted pilot grant opens the existing workspace without billing and revok
       })
     ).status(),
   ).toBe(403);
-  await expect(page.getByText(/Contact your administrator/)).toBeVisible();
+  await expect(page.getByText(/access is currently inactive/)).toBeVisible();
 });

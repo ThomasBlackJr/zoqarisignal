@@ -21,7 +21,7 @@ if (
     "Browser-test database must be in its disposable temporary folder",
   );
 }
-const python = path.resolve(
+const rootPython = path.resolve(
   "..",
   ".venv",
   process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
@@ -55,7 +55,7 @@ export default defineConfig({
       timeout: 30000,
     },
     {
-      command: "npm run dev -- --port 3001",
+      command: process.env.SIGNAL_E2E_PRODUCTION === "1" ? "npm run start -- --port 3001" : "npm run dev -- --port 3001",
       url: "http://localhost:3001/login",
       env: { BACKEND_URL: "http://127.0.0.1:8001", DRIVE_E2E: "1" },
       reuseExistingServer: false,

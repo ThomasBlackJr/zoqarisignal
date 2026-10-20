@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useHydrated } from "@/lib/use-hydrated";
@@ -22,6 +22,7 @@ export function VerificationCode() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(60);
+  const resendAt = useRef(0);
   const [mode, setMode] = useState("");
   const [done, setDone] = useState(false);
   const hydrated = useHydrated();
@@ -29,8 +30,9 @@ export function VerificationCode() {
     api<{ mail_delivery: string }>("/auth/options")
       .then((v) => setMode(v.mail_delivery))
       .catch(() => {});
+    resendAt.current = Date.now() + 60000;
     const timer = setInterval(
-      () => setCooldown((n) => Math.max(0, n - 1)),
+      () => setCooldown(Math.max(0, Math.ceil((resendAt.current - Date.now()) / 1000))),
       1000,
     );
     return () => clearInterval(timer);
@@ -151,6 +153,7 @@ export function VerificationCode() {
                   );
                   window.dispatchEvent(new HashChangeEvent("hashchange"));
                 }
+                resendAt.current = Date.now() + 60000;
                 setCooldown(60);
                 setCode("");
                 setMessage(

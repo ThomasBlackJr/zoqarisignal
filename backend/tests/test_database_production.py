@@ -1,5 +1,6 @@
 """Database safety and migration regression checks; integration uses a disposable schema."""
 
+import ast
 import os
 import uuid
 from pathlib import Path
@@ -8,10 +9,102 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 
 from app.config import DatabaseSettings, Settings
 from app.db import database_url, make_database
+
+
+def test_revision_graph_has_unique_ids_and_every_file_reaches_single_head():
+    root = Path(__file__).resolve().parents[1]
+    revisions = {}
+    for path in (root / "migrations" / "versions").glob("*.py"):
+        assignments = {
+            node.targets[0].id: ast.literal_eval(node.value)
+            for node in ast.parse(path.read_text()).body
+            if isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in {"revision", "down_revision"}
+        }
+        revision = assignments["revision"]
+        assert revision not in revisions, (revision, path, revisions.get(revision))
+        revisions[revision] = assignments["down_revision"]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    scripts = ScriptDirectory.from_config(config)
+    assert scripts.get_heads() == ["u179570dfe20"]
+    assert scripts.get_bases() == ["a2623e115e90"]
+    assert {item.revision for item in scripts.walk_revisions()} == set(revisions)
+    for revision, parent in revisions.items():
+        parents = parent if isinstance(parent, tuple) else (() if parent is None else (parent,))
+        assert all(item in revisions for item in parents), revision
+        # Every node has a complete ancestor path to the original base.
+        assert "a2623e115e90" in {item.revision for item in scripts.walk_revisions(base="base", head=revision)}
+
+
+@pytest.mark.parametrize("first_branch", ["r846247abd17", "t068469cfd19"])
+def test_fresh_upgrade_contains_both_branches_and_lifecycle(migration_database, first_branch):
+    from app.db import Base
+    from app import models  # noqa: F401
+
+    engine, _ = migration_database
+    root = Path(__file__).resolve().parents[1]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    command.upgrade(config, first_branch)
+    command.upgrade(config, "head")
+    command.upgrade(config, "head")
+    command.check(config)
+
+    with engine.connect() as conn:
+        inspector = sa.inspect(conn)
+        assert set(inspector.get_table_names()) == set(Base.metadata.tables) | {"alembic_version"}
+        for table in Base.metadata.sorted_tables:
+            assert {column["name"] for column in inspector.get_columns(table.name)} == set(table.columns.keys())
+        assert conn.scalar(sa.text("SELECT version_num FROM alembic_version")) == "u179570dfe20"
+    # Lifecycle rollback must leave shared ancestor-owned objects intact.
+    command.downgrade(config, "6d8f2a91c043")
+    inspector = sa.inspect(engine)
+    assert "platform_administrators" in inspector.get_table_names()
+    assert "created_at" in {c["name"] for c in inspector.get_columns("users")}
+    assert "suspended" in {c["name"] for c in inspector.get_columns("organizations")}
+    assert "last_login_at" not in {c["name"] for c in inspector.get_columns("users")}
+    command.upgrade(config, "head")
+    command.check(config)
+
+
+def test_lifecycle_preserves_shared_account_and_beta_state(migration_database):
+    engine, _ = migration_database
+    root = Path(__file__).resolve().parents[1]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    command.upgrade(config, "6d8f2a91c043")
+    metadata = sa.MetaData()
+    metadata.reflect(engine)
+    with engine.begin() as conn:
+        organization = conn.scalar(sa.text("SELECT id FROM organizations"))
+        conn.execute(metadata.tables["users"].insert().values(
+            id="shared-admin", email="shared@example.test", name="Shared", password_hash="unused",
+            role="ADMIN", active=True, email_verified=True, created_at=123.0, admin_revision=7,
+        ))
+        conn.execute(metadata.tables["organizations"].update().values(
+            suspended=True, transcription_vocabulary={"terms": ["Synthetic"]},
+        ))
+        conn.execute(metadata.tables["platform_administrators"].insert().values(user_id="shared-admin", active=True))
+        conn.execute(metadata.tables["beta_access"].insert().values(
+            organization_id=organization, active=True, expires_at=456.0,
+        ))
+    command.upgrade(config, "head")
+    command.check(config)
+    with engine.connect() as conn:
+        assert conn.scalar(sa.text("SELECT created_at FROM users")) == 123.0
+        assert conn.scalar(sa.text("SELECT admin_revision FROM users")) == 7
+        assert conn.scalar(sa.text("SELECT suspended FROM organizations"))
+        assert conn.scalar(sa.text("SELECT user_id FROM platform_administrators")) == "shared-admin"
+        assert conn.scalar(sa.text("SELECT expires_at FROM beta_access")) == 456.0
+    with pytest.raises(RuntimeError, match="history exists"):
+        command.downgrade(config, "6d8f2a91c043")
 
 
 @pytest.mark.parametrize("url", ["sqlite:///./data/drive.db", "sqlite:///:memory:", "sqlite:////tmp/test.db"])

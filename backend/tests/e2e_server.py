@@ -61,7 +61,6 @@ if __name__ == "__main__":
         )
         db.add(operator)
         db.flush()
-        db.add(PlatformAdministrator(user_id=operator.id, active=True))
         db.add(
             User(
                 email="owner@example.test",
@@ -69,16 +68,6 @@ if __name__ == "__main__":
                 email_verified=True,
                 organization_id=LEGACY_ORG,
                 role=Role.OWNER,
-                password_hash=hasher.hash(os.environ["DRIVE_TEST_PASSWORD"]),
-            )
-        )
-        db.commit()
-        db.add(
-            User(
-                email="platform@example.test",
-                name="Platform Operator",
-                email_verified=True,
-                role=Role.EMPLOYEE,
                 password_hash=hasher.hash(os.environ["DRIVE_TEST_PASSWORD"]),
             )
         )

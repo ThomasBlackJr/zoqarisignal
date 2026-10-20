@@ -4,21 +4,16 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "u179570dfe20"
-down_revision = "t068469cfd19"
+down_revision = "6d8f2a91c043"
 branch_labels = depends_on = None
 
 
 def upgrade():
-    op.add_column("users", sa.Column("created_at", sa.Float(), nullable=True))
+    # The merge guarantees created_at, suspended and platform_administrators
+    # already exist. Their owning migrations also own their eventual removal.
     op.add_column("users", sa.Column("last_login_at", sa.Float(), nullable=True))
-    op.add_column("organizations", sa.Column("suspended", sa.Boolean(), nullable=False, server_default=sa.false()))
     with op.batch_alter_table("organizations") as batch:
         batch.alter_column("suspended", existing_type=sa.Boolean(), server_default=None)
-    op.create_table(
-        "platform_administrators",
-        sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), primary_key=True),
-        sa.Column("active", sa.Boolean(), nullable=False),
-    )
     op.create_table(
         "account_events",
         sa.Column("id", sa.String(36), primary_key=True),
@@ -44,9 +39,7 @@ def downgrade():
         if bind.scalar(sa.text(query)):
             raise RuntimeError("Account lifecycle history exists. Restore a verified backup instead of discarding it.")
     op.drop_table("account_events")
-    op.drop_table("platform_administrators")
     with op.batch_alter_table("organizations") as batch:
-        batch.drop_column("suspended")
+        batch.alter_column("suspended", existing_type=sa.Boolean(), server_default=sa.false())
     with op.batch_alter_table("users") as batch:
-        batch.drop_column("created_at")
         batch.drop_column("last_login_at")

@@ -6,7 +6,7 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, update, and_, or_
 from sqlalchemy.exc import IntegrityError
 
 from .account_schemas import CompleteSetup, Email, OrganizationCreate, Registration, Reset
@@ -14,11 +14,10 @@ from .auth import COOKIE, current_user, find_user, get_db, hasher, require, toke
 from .logging import event
 from .models import AccountToken, Call, EntitlementEvent, Invitation, Organization, Role, Session, User
 from .services.account_audit import account_event
-from .services.entitlements import operational_access
+from .services.entitlements import operational_access, access_expiration, INACTIVE_ACCESS_MESSAGE
 from .services.rubric import create_starter_rubric
 from .services.verification import issue_code, redeem_code
 from .models import VerificationCode
-from .models import PlatformEvent
 from .schemas import StrictModel
 from pydantic import Field
 
@@ -62,6 +61,7 @@ def issue_session(db, user, request, response):
     token = secrets.token_urlsafe(32)
     seconds = settings.session_hours * 3600
     db.add(Session(token_hash=token_hash(token), user_id=user.id, expires_at=now + seconds))
+    user.last_session_at = now
     user.last_login_at = now
     account_event(db, "session_started", user=user, actor=user)
     db.commit()
@@ -284,7 +284,7 @@ def create_organization(body: OrganizationCreate, user=Depends(verified), db=Dep
 def account(request: Request, user=Depends(current_user)):
     settings = request.app.state.settings
     organization = user.organization
-    access = operational_access(organization, settings)
+    access = user.email_verified and operational_access(organization, settings)
     pending = []
     if user.email_verified and not user.organization_id:
         invitations = db_invitations(request, user)
@@ -292,6 +292,7 @@ def account(request: Request, user=Depends(current_user)):
     return {
         **user_view(user),
         "operational_access": access,
+        "access_expires_at": access_expiration(organization, settings) if access else None,
         "suspended": bool(organization and organization.suspended),
         "access_message": None if access or organization is None else INACTIVE_ACCESS_MESSAGE,
         "can_review": user.role in {Role.OWNER, Role.ADMIN, Role.MANAGER, Role.REVIEWER, Role.SUPERVISOR},
@@ -325,8 +326,11 @@ def db_invitations(request, user):
                 Invitation.expires_at > time.time(),
                 User.active.is_(True),
                 User.email_verified.is_(True),
-                User.role.in_([Role.OWNER, Role.ADMIN]),
-                User.organization_id == Invitation.organization_id,
+                or_(
+                    and_(Invitation.platform_issued.is_(False), User.role.in_([Role.OWNER, Role.ADMIN]),
+                         User.organization_id == Invitation.organization_id),
+                    and_(Invitation.platform_issued.is_(True), User.platform_authority.has(active=True)),
+                ),
             )
             .order_by(Invitation.created_at.desc())
             .limit(25)

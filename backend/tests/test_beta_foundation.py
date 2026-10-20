@@ -24,9 +24,11 @@ def change_role(app, role):
         db.commit()
 
 
-def platform(app):
+def platform(app, client):
     with app.state.db() as db:
-        set_authority(db, "admin@example.test", True, "Synthetic test provisioning")
+        set_authority(db, "admin@example.test", reason="Synthetic test provisioning")
+    assert client.get("/account").status_code == 401
+    assert client.post("/auth/login", json={"email": "admin@example.test", "password": "test-password-only"}).status_code == 200
 
 
 def grant(client, **kwargs):
@@ -48,12 +50,14 @@ def test_owner_only_billing(signed_in, app, role):
 
 
 def test_beta_grant_expiration_revoke_and_independent_subscription(signed_in, app):
-    platform(app)
+    platform(app, signed_in)
     with app.state.db() as db:
         org = db.get(Organization, LEGACY_ORG)
         org.subscription_status = "inactive"
         db.commit()
-    assert signed_in.get("/dashboard").status_code == 403
+    assert not signed_in.get("/account").json()["operational_access"]
+    assert signed_in.post("/calls/missing/retry").status_code == 403
+    assert signed_in.get("/dashboard").status_code == 200
     assert grant(signed_in).json()["operational_access"]
     assert signed_in.get("/dashboard").status_code == 200
     assert grant(signed_in, expires_at=time.time() - 1).status_code == 422
@@ -61,7 +65,7 @@ def test_beta_grant_expiration_revoke_and_independent_subscription(signed_in, ap
     with app.state.db() as db:
         db.get(BetaAccess, LEGACY_ORG).expires_at = time.time() - 1
         db.commit()
-    assert signed_in.get("/dashboard").status_code == 403
+    assert signed_in.get("/dashboard").status_code == 200
     assert grant(signed_in).status_code == 200
     assert (
         signed_in.request(
@@ -94,11 +98,12 @@ def test_beta_works_in_production_without_stripe(app):
 
 
 def test_suspension_existing_session_worker_and_reactivation(signed_in, app, wav_bytes):
-    platform(app)
+    platform(app, signed_in)
     call_id = signed_in.post("/calls", files={"file": ("fixture.wav", wav_bytes, "audio/wav")}).json()["id"]
     endpoint = f"/platform/organizations/{LEGACY_ORG}/suspension"
     assert signed_in.put(endpoint, json={"suspended": True, "reason": "Pause beta"}).status_code == 200
-    assert signed_in.get("/dashboard").json()["detail"] == INACTIVE_ACCESS_MESSAGE
+    assert signed_in.get("/dashboard").json()["total"] == 0
+    assert signed_in.get("/account").json()["access_message"] == INACTIVE_ACCESS_MESSAGE
     assert signed_in.get(f"/calls/{call_id}/audio").status_code == 403
     assert signed_in.get("/account").json()["suspended"]
     transcription, qa = Mock(), Mock()
@@ -126,23 +131,23 @@ def test_customer_roles_never_imply_platform_authority(signed_in, app, role):
 
 
 def test_organization_free_platform_account_and_revocation(signed_in, app):
-    platform(app)
+    platform(app, signed_in)
     with app.state.db() as db:
         user = db.scalar(select(User).where(User.email == "admin@example.test"))
         user.organization_id, user.role = None, Role.EMPLOYEE
         db.commit()
     assert signed_in.get("/account").status_code == 200
-    assert signed_in.get("/dashboard").status_code == 403
+    assert signed_in.get("/dashboard").json()["total"] == 0
     assert signed_in.get("/platform/organizations").status_code == 200
     assert signed_in.post("/platform/organizations", json={"name": "Second beta", "reason": "Pilot"}).status_code == 201
     with app.state.db() as db:
-        set_authority(db, "admin@example.test", False, "Revoke platform privileges")
-    assert signed_in.get("/platform/organizations").status_code == 403
+        set_authority(db, "admin@example.test", revoke=True, reason="Revoke platform privileges")
+    assert signed_in.get("/platform/organizations").status_code == 401
 
 
 def test_employee_inactive_message_and_no_operational_access(signed_in, app):
     change_role(app, Role.EMPLOYEE)
-    assert signed_in.get("/dashboard").status_code == 403
+    assert signed_in.get("/dashboard").json()["total"] == 0
     with app.state.db() as db:
         db.get(Organization, LEGACY_ORG).suspended = True
         db.commit()
@@ -151,7 +156,7 @@ def test_employee_inactive_message_and_no_operational_access(signed_in, app):
 
 
 def test_platform_scope_membership_and_audits(signed_in, app):
-    platform(app)
+    platform(app, signed_in)
     response = signed_in.post("/platform/organizations", json={"name": "Other tenant", "reason": "Pilot"})
     other = response.json()["id"]
     assert signed_in.get(f"/platform/organizations/{other}/members").json()["items"] == []
@@ -170,7 +175,7 @@ def test_platform_scope_membership_and_audits(signed_in, app):
 
 
 def test_platform_requires_verified_active_account(signed_in, app):
-    platform(app)
+    platform(app, signed_in)
     with app.state.db() as db:
         user = db.scalar(select(User).where(User.email == "admin@example.test"))
         user.email_verified = False
@@ -186,7 +191,7 @@ def test_platform_requires_verified_active_account(signed_in, app):
 def test_platform_owner_invitation_scoped_and_revoked_authority(signed_in, app):
     from .test_customer_entry import mail_token
 
-    platform(app)
+    platform(app, signed_in)
     other = signed_in.post("/platform/organizations", json={"name": "Invited org", "reason": "Beta"}).json()["id"]
     path = f"/platform/organizations/{other}/invitations"
     assert (
@@ -202,10 +207,10 @@ def test_platform_owner_invitation_scoped_and_revoked_authority(signed_in, app):
     )
     assert signed_in.post("/invitations/preview", json={"token": token}).json()["role"] == "OWNER"
     with app.state.db() as db:
-        set_authority(db, "admin@example.test", False, "Revoke inviter")
+        set_authority(db, "admin@example.test", revoke=True, reason="Revoke inviter")
     assert signed_in.post("/invitations/preview", json={"token": token}).status_code == 400
     with app.state.db() as db:
-        set_authority(db, "admin@example.test", True, "Restore inviter")
+        set_authority(db, "admin@example.test", reason="Restore inviter")
     signed_in.post("/auth/logout")
     response = signed_in.post(
         "/invitations/register",
@@ -219,11 +224,11 @@ def test_platform_owner_invitation_scoped_and_revoked_authority(signed_in, app):
     assert response.status_code == 201
     assert response.json()["role"] == "OWNER" and response.json()["organization_id"] == other
     assert signed_in.get("/platform/organizations").status_code == 403
-    assert signed_in.get("/dashboard").status_code == 403  # invitation grants no entitlement
+    assert signed_in.get("/dashboard").json()["total"] == 0  # invitation grants no entitlement
 
 
 def test_suspension_during_transcription_preserves_text_and_blocks_qa(signed_in, app, wav_bytes):
-    platform(app)
+    platform(app, signed_in)
     cid = signed_in.post("/calls", files={"file": ("fixture.wav", wav_bytes, "audio/wav")}).json()["id"]
     original = app.state.processor.transcription
 

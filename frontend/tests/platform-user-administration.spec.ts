@@ -30,21 +30,25 @@ test("platform account lifecycle and confirmed ownership transfer retain the old
   const headers = { "X-Drive-Request": "1", Origin: "http://localhost:3001" };
   // Credentials stay inside the private test outbox and request body.
   const folder = process.env.DRIVE_E2E_MAIL_FOLDER!;
-  const message = readdirSync(folder)
-    .map((n) =>
-      readFileSync(path.join(folder, n), "utf8").replace(/\r\n/g, "\n"),
-    )
-    .find(
-      (t) => t.includes(`To: ${email}\n`) && t.includes("Purpose: verify\n"),
-    );
-  if (!message) throw new Error("Expected private verification message");
-  const link = message.split("\n").find((t) => t.startsWith("http"))!;
-  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("token");
+  const messages = readdirSync(folder)
+    .map((n) => readFileSync(path.join(folder, n), "utf8").replace(/\r\n/g, "\n"))
+    .filter((t) => t.includes(`To: ${email}\n`));
+  const code = messages.find((t) => t.includes("Purpose: verify_code\n"))?.match(/Verification code: (\d{6})/)?.[1];
+  const resetMessage = messages.find((t) => t.includes("Purpose: reset\n"));
+  const resetLink = resetMessage?.split("\n").find((t) => t.startsWith("http"));
+  if (!code || !resetLink) throw new Error("Expected private setup messages");
+  const resetToken = new URLSearchParams(new URL(resetLink).hash.slice(1)).get("token");
   const recipient = await browser.newContext();
-  const verified = await recipient.request.post(
-    "http://localhost:3001/api/auth/verify-email",
-    { headers, data: { token } },
-  );
+  const password = process.env.DRIVE_TEST_PASSWORD!;
+  expect((await recipient.request.post("http://localhost:3001/api/auth/reset-password", {
+    headers, data: { token: resetToken, password },
+  })).status()).toBe(200);
+  expect((await recipient.request.post("http://localhost:3001/api/auth/login", {
+    headers, data: { email, password },
+  })).status()).toBe(200);
+  const verified = await recipient.request.post("http://localhost:3001/api/auth/verify-email", {
+    headers, data: { code },
+  });
   expect(verified.status()).toBe(200);
   await recipient.close();
   await page.reload();

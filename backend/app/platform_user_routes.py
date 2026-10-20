@@ -22,7 +22,9 @@ from .models import (
     EmployeeHierarchyChange,
     PlatformEvent,
 )
-from .platform_routes import platform_admin, audit, Reason, organization
+from .platform_routes import platform_admin, audit, Reason, organization, events
+from .services.account_audit import account_event
+from .services.verification import issue_code
 from .services.entitlements import operational_access
 from .services.hierarchy import set_manager
 from .logging import event
@@ -233,6 +235,8 @@ def detail(db, user, settings):
         }
         if employee
         else None,
+        "events": events(db, user_id=user.id),
+        "last_login_at": user.last_login_at,
         "activity": [
             {
                 "id": v.id,
@@ -272,7 +276,7 @@ def create_user(body: Create, request: Request, actor=Depends(platform_admin), d
     db.add(user)
     try:
         db.flush()
-        send_token(db, user, "verify", request)
+        issue_code(db, user, request, preserve_challenge=True)
         send_token(db, user, "reset", request)
         audit(db, actor, "user.created", reason=body.reason, details={"user_id": user.id})
         db.commit()
@@ -318,7 +322,7 @@ def email(user_id: str, body: ChangeEmail, request: Request, actor=Depends(platf
             old,
             "An administrator requested a change to your Signal sign-in email. Existing sessions are revoked when the change is saved.",
         )
-        send_token(db, user, "verify", request)
+        issue_code(db, user, request, preserve_challenge=True)
         record(db, actor, user, "user.email_changed", body.reason, {"old_email": old, "new_email": user.email})
         db.commit()
     except IntegrityError:
@@ -327,11 +331,13 @@ def email(user_id: str, body: ChangeEmail, request: Request, actor=Depends(platf
     return detail(db, user, request.app.state.settings)
 
 
+@router.post("/users/{user_id}/status", dependencies=[Depends(limit)])
 @router.put("/users/{user_id}/status", dependencies=[Depends(limit)])
 def status(user_id: str, body: AccountStatus, request: Request, actor=Depends(platform_admin), db=Depends(get_db)):
     user = locked_target(db, user_id, body)
     if not body.active:
-        owner_guard(user)
+        if not (user.organization and user.organization.suspended):
+            owner_guard(user)
         if user.id == actor.id or (user.platform_authority and user.platform_authority.active):
             raise HTTPException(
                 409, "Revoke platform authority through the trusted operator workflow before deactivation"
@@ -344,6 +350,9 @@ def status(user_id: str, body: AccountStatus, request: Request, actor=Depends(pl
         user.email,
         "Your Signal account has been "
         + ("reactivated." if body.active else "deactivated. Historical records are retained."),
+    )
+    account_event(
+        db, "account_activated" if body.active else "account_deactivated", user=user, actor=actor, reason=body.reason
     )
     record(db, actor, user, "user.reactivated" if body.active else "user.deactivated", body.reason)
     db.commit()
@@ -389,7 +398,14 @@ def password_reset(user_id: str, body: Mutation, request: Request, actor=Depends
     user = locked_target(db, user_id, body)
     if not user.active:
         raise HTTPException(409, "Reactivate the account before requesting a password reset")
-    send_token(db, user, "reset", request)
+    try:
+        send_token(db, user, "reset", request)
+    except HTTPException as exc:
+        db.rollback()
+        account_event(db, "password_reset_request_failed", user=user, actor=actor, reason=body.reason)
+        db.commit()
+        raise exc
+    account_event(db, "password_reset_requested_by_admin", user=user, actor=actor, reason=body.reason)
     record(db, actor, user, "user.password_reset_initiated", body.reason)
     db.commit()
     return {"message": "Password reset submitted through the configured mail provider. Delivery is not guaranteed."}
@@ -400,8 +416,14 @@ def verification(user_id: str, body: Mutation, request: Request, actor=Depends(p
     user = locked_target(db, user_id, body)
     if not user.active or user.email_verified:
         raise HTTPException(409, "Verification requires an active, unverified account")
-    db.execute(delete(VerificationCode).where(VerificationCode.user_id == user.id))
-    send_token(db, user, "verify", request)
+    try:
+        issue_code(db, user, request, preserve_challenge=True)
+    except HTTPException as exc:
+        db.rollback()
+        account_event(db, "verification_request_failed", user=user, actor=actor, reason=body.reason)
+        db.commit()
+        raise exc
+    account_event(db, "verification_requested_by_admin", user=user, actor=actor, reason=body.reason)
     record(db, actor, user, "user.verification_requested", body.reason)
     db.commit()
     return {"message": "Verification submitted through the configured mail provider. Delivery is not guaranteed."}

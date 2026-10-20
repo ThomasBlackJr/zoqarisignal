@@ -6,8 +6,39 @@ from fastapi import HTTPException
 from ..models import Organization
 
 
+INACTIVE_ACCESS_MESSAGE = "Your organization's access is currently inactive. Please contact your organization owner."
+
+
+def beta_active(organization):
+    beta = organization.beta_access
+    return bool(
+        beta
+        and beta.active
+        and (beta.expires_at is None or (math.isfinite(beta.expires_at) and beta.expires_at > time.time()))
+    )
+
+
 def operational_access(organization, settings):
-    if organization is None or organization.suspended or organization.subscription_status not in {"active", "trialing"}:
+    return bool(
+        organization
+        and not organization.suspended
+        and (beta_active(organization) or entitlement_access(organization, settings))
+    )
+
+
+def access_expiration(organization, settings):
+    if not operational_access(organization, settings):
+        return None
+    expirations = []
+    if beta_active(organization):
+        expirations.append(organization.beta_access.expires_at)
+    if entitlement_access(organization, settings):
+        expirations.append(organization.entitlement_expires_at)
+    return None if None in expirations else max(expirations)
+
+
+def entitlement_access(organization, settings):
+    if organization.subscription_status not in {"active", "trialing"}:
         return False
     if organization.entitlement_source == "pilot":
         expires = organization.entitlement_expires_at
@@ -52,7 +83,7 @@ def assert_workspace_access(user):
     if not user.organization_id:
         raise HTTPException(403, "Create your organization before opening the workspace")
     if user.organization.suspended:
-        raise HTTPException(403, "Organization access is paused. Contact your administrator.")
+        raise HTTPException(403, INACTIVE_ACCESS_MESSAGE)
 
 
 def assert_account_access(user, settings):
