@@ -1,6 +1,7 @@
 import { Appearance } from "./preferences";
 import Link from "next/link";
 import { Brand } from "./ui";
+import { ProprietaryNotice } from "./proprietary-notice";
 
 export function AccountFrame({
   children,
@@ -48,6 +49,7 @@ export function AccountFrame({
         </section>
         <section className="account-card">{children}</section>
       </div>
+      <ProprietaryNotice />
     </main>
   );
 }

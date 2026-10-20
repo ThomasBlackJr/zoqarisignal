@@ -1433,6 +1433,7 @@ progress {
   position: relative;
 }
 .login-form {
+  margin-block: auto;
   width: 100%;
   max-width: 360px;
 }
@@ -1481,8 +1482,7 @@ progress {
   margin: 22px 0 0;
 }
 .login-legal {
-  position: absolute;
-  bottom: 43px;
+  margin-top: 32px;
   color: #9aa7ae;
   font-size: 11px;
 }
@@ -1879,8 +1879,12 @@ progress {
   .login-form h2 {
     font-size: 28px;
   }
+  .login-form {
+    margin-block: 0;
+  }
   .login-legal {
-    bottom: 25px;
+    margin-top: auto;
+    padding-top: 32px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

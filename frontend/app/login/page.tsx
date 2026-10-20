@@ -6,6 +6,7 @@ import { ArrowRight, AudioLines, ShieldCheck, Route } from "lucide-react";
 import { api, Account, accountDestination } from "@/lib/api";
 import { Brand, ErrorBox } from "@/components/ui";
 import { useHydrated } from "@/lib/use-hydrated";
+import { ProprietaryNotice } from "@/components/proprietary-notice";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -127,9 +128,7 @@ export default function LoginPage() {
             <Link href="/forgot-password">Forgot password?</Link>
           </div>
         </form>
-        <small className="login-legal">
-          A Zoqari product. Built for better interactions.
-        </small>
+        <ProprietaryNotice className="login-legal" />
       </section>
     </main>
   );
