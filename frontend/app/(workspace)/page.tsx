@@ -43,6 +43,17 @@ export default function DashboardPage() {
     data?.issues.filter((i) => i.coaching_ready).slice(0, 3) ?? [];
   function content(key: string) {
     if (!data) return null;
+    // Keep saved module order while leaving no empty panels or spacer wrappers.
+    if (
+      (key === "attention" && data.needs_attention === 0) ||
+      (key === "issues" && !data.issues.length) ||
+      (key === "teams" && !data.teams.length) ||
+      (["coaching", "recommendations"].includes(key) &&
+        !opportunities.length) ||
+      (key === "processing" && data.awaiting === 0 && data.failed === 0) ||
+      (key === "review" && data.requiring_review === 0)
+    )
+      return null;
     switch (key) {
       case "metrics":
         return (
@@ -71,9 +82,10 @@ export default function DashboardPage() {
                 ],
               ].map(([label, value, note]) => (
                 <article className="metric" key={label}>
-                  <div className="metric-top">{label}</div>
+                  <div className="metric-top" title={String(note)}>
+                    {label}
+                  </div>
                   <div className="metric-value">{value}</div>
-                  <p>{note}</p>
                 </article>
               ))}
             </div>
@@ -86,29 +98,29 @@ export default function DashboardPage() {
         );
       case "attention":
         return (
-          <section className="panel">
+          <section className="panel briefing-priority">
             <div className="panel-heading">
               <div>
                 <h2>Needs Attention</h2>
-                <p>
-                  {data.needs_attention
-                    ? "Start with the interactions that need a decision."
-                    : "No outstanding review or processing issues."}
-                </p>
               </div>
               <strong>{data.needs_attention}</strong>
             </div>
             <div className="briefing-attention">
-              <Link href="/calls?needs_review=true">
-                <strong>{data.requiring_review}</strong>
-                <span>Require review</span>
-                <small>Includes {data.stale} outdated evaluations</small>
-              </Link>
-              <Link href="/calls?status=failed">
-                <strong>{data.failed}</strong>
-                <span>Processing failures</span>
-                <small>Open an interaction to inspect or retry</small>
-              </Link>
+              {data.requiring_review > 0 && (
+                <Link href="/calls?needs_review=true">
+                  <strong>{data.requiring_review}</strong>
+                  <span>Require review</span>
+                  {data.stale > 0 && (
+                    <small>Includes {data.stale} outdated evaluations</small>
+                  )}
+                </Link>
+              )}
+              {data.failed > 0 && (
+                <Link href="/calls?status=failed">
+                  <strong>{data.failed}</strong>
+                  <span>Processing failures</span>
+                </Link>
+              )}
             </div>
           </section>
         );
@@ -124,45 +136,39 @@ export default function DashboardPage() {
                 </p>
               </div>
             </div>
-            {data.issues.length ? (
-              <div className="briefing-issues">
-                {data.issues.map((i) => (
-                  <article key={i.id}>
-                    <div className="briefing-row">
-                      <div>
-                        <h3>{i.name}</h3>
-                        <small>
-                          {i.rubric_name} · v{i.rubric_version}
-                        </small>
-                      </div>
-                      <span className="issue-count">
-                        {i.occurrences}
-                        <small>occurrences</small>
-                      </span>
-                    </div>
-                    <Observation issue={i} />
-                    <div className="briefing-row">
+            <div className="briefing-issues">
+              {data.issues.map((i) => (
+                <article key={i.id}>
+                  <div className="briefing-row">
+                    <div>
+                      <h3>{i.name}</h3>
                       <small>
-                        {i.limited_sample
-                          ? "Limited sample"
-                          : "Current audited scores"}{" "}
-                        · Not criterion-level failure counts
+                        {i.rubric_name} · v{i.rubric_version}
                       </small>
-                      <button
-                        className="button secondary"
-                        onClick={() => setSelected({ id: i.id, email: false })}
-                      >
-                        View evidence
-                      </button>
                     </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="empty">
-                No below-maximum categories in current evaluations.
-              </p>
-            )}
+                    <span className="issue-count">
+                      {i.occurrences}
+                      <small>occurrences</small>
+                    </span>
+                  </div>
+                  <Observation issue={i} />
+                  <div className="briefing-row">
+                    <small>
+                      {i.limited_sample
+                        ? "Limited sample"
+                        : "Current audited scores"}{" "}
+                      · Not criterion-level failure counts
+                    </small>
+                    <button
+                      className="button secondary"
+                      onClick={() => setSelected({ id: i.id, email: false })}
+                    >
+                      View evidence
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
           </section>
         );
       case "teams":
@@ -180,48 +186,41 @@ export default function DashboardPage() {
                 View managers
               </Link>
             </div>
-            {data.teams.length ? (
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Manager</th>
-                      <th>Employees</th>
-                      <th>Analyzed</th>
-                      <th>Signal Score</th>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Manager</th>
+                    <th>Employees</th>
+                    <th>Analyzed</th>
+                    <th>Signal Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.teams.map((t) => (
+                    <tr key={t.id}>
+                      <td>
+                        <Link
+                          className="text-link"
+                          href={`/employees/${t.id}/team`}
+                        >
+                          {t.name}
+                        </Link>
+                        {!t.active && <small> · Archived</small>}
+                      </td>
+                      <td>{t.direct_reports}</td>
+                      <td>
+                        {t.analyzed} / {t.interactions}
+                      </td>
+                      <td>
+                        {t.score ?? "—"}
+                        {t.limited_sample && <small> · Limited sample</small>}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {data.teams.map((t) => (
-                      <tr key={t.id}>
-                        <td>
-                          <Link
-                            className="text-link"
-                            href={`/employees/${t.id}/team`}
-                          >
-                            {t.name}
-                          </Link>
-                          {!t.active && <small> · Archived</small>}
-                        </td>
-                        <td>{t.direct_reports}</td>
-                        <td>
-                          {t.analyzed} / {t.interactions}
-                        </td>
-                        <td>
-                          {t.score ?? "—"}
-                          {t.limited_sample && <small> · Limited sample</small>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="empty">
-                Designate managers and assign direct reports in Employees to see
-                team performance.
-              </p>
-            )}
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         );
       case "coaching":
@@ -230,104 +229,81 @@ export default function DashboardPage() {
             <div className="panel-heading">
               <div>
                 <h2>Coaching Opportunities</h2>
-                <p>
-                  Verified observations first. AI-assisted review actions on
-                  request.
-                </p>
               </div>
             </div>
-            {opportunities.length ? (
-              <div className="briefing-issues">
-                {opportunities.map((i) => (
-                  <article key={i.id}>
-                    <h3>{i.name}</h3>
-                    <small>
-                      {i.rubric_name} · v{i.rubric_version}
-                    </small>
-                    <Observation issue={i} />
-                    {i.recommendation && (
-                      <div className="briefing-observation">
-                        <strong>
-                          {i.recommendation_synthetic
-                            ? "Synthetic recommendation"
-                            : "AI-assisted recommendation"}
-                        </strong>
-                        <p>{i.recommendation}</p>
-                      </div>
-                    )}
-                    <div className="form-actions">
-                      <button
-                        className="button secondary"
-                        onClick={() => setSelected({ id: i.id, email: false })}
-                      >
-                        Review coaching & evidence
-                      </button>
-                      <button
-                        className="button secondary"
-                        onClick={() => setSelected({ id: i.id, email: true })}
-                      >
-                        Create Team Email
-                      </button>
+            <div className="briefing-issues">
+              {opportunities.map((i) => (
+                <article key={i.id}>
+                  <h3>{i.name}</h3>
+                  <small>
+                    {i.rubric_name} · v{i.rubric_version}
+                  </small>
+                  <Observation issue={i} />
+                  {i.recommendation && (
+                    <div className="briefing-observation">
+                      <strong>
+                        {i.recommendation_synthetic
+                          ? "Synthetic recommendation"
+                          : "AI-assisted recommendation"}
+                      </strong>
+                      <p>{i.recommendation}</p>
                     </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="empty">
-                Not enough recurring observations yet. Coaching requires five
-                eligible evaluations per scorecard and two below-maximum
-                occurrences.
-              </p>
-            )}
-          </section>
-        );
-      case "recommendations":
-        return (
-          <section className="panel signal-recommends">
-            <div className="panel-heading">
-              <div>
-                <h2>Signal Recommends</h2>
-                <p>
-                  Up to three review priorities, ordered by observed occurrence
-                  count.
-                </p>
-              </div>
-            </div>
-            {opportunities.length ? (
-              opportunities.map((i) => (
-                <div className="recommendation-row" key={i.id}>
-                  <div>
-                    <h3>Review {i.name}</h3>
-                    <p>
-                      {i.occurrences} below-maximum scores · {i.rubric_name} v
-                      {i.rubric_version}
-                    </p>
-                    <small>
-                      Review the evidence before choosing a team reminder.
-                    </small>
-                  </div>
+                  )}
                   <div className="form-actions">
                     <button
                       className="button secondary"
                       onClick={() => setSelected({ id: i.id, email: false })}
                     >
-                      View evidence
+                      Review coaching & evidence
                     </button>
                     <button
-                      className="button primary"
+                      className="button secondary"
                       onClick={() => setSelected({ id: i.id, email: true })}
                     >
                       Create Team Email
                     </button>
                   </div>
-                </div>
-              ))
-            ) : (
-              <p className="empty">
-                No recurring pattern meets the coaching sample threshold yet.
-              </p>
-            )}
+                </article>
+              ))}
+            </div>
           </section>
+        );
+      case "recommendations":
+        return (
+          <details className="panel signal-recommends">
+            <summary className="panel-heading">
+              <h2>Signal Recommends</h2>
+              <span>
+                {opportunities.length} review{" "}
+                {opportunities.length === 1 ? "priority" : "priorities"}
+              </span>
+            </summary>
+            {opportunities.map((i) => (
+              <div className="recommendation-row" key={i.id}>
+                <div>
+                  <h3>Review {i.name}</h3>
+                  <p>
+                    {i.occurrences} below-maximum scores · {i.rubric_name} v
+                    {i.rubric_version}
+                  </p>
+                </div>
+                <div className="form-actions">
+                  <button
+                    className="button secondary"
+                    onClick={() => setSelected({ id: i.id, email: false })}
+                  >
+                    View evidence
+                  </button>
+                  <button
+                    className="button primary"
+                    onClick={() => setSelected({ id: i.id, email: true })}
+                  >
+                    Create Team Email
+                  </button>
+                </div>
+              </div>
+            ))}
+          </details>
         );
       case "recent":
         return (
@@ -335,7 +311,6 @@ export default function DashboardPage() {
             <div className="panel-heading">
               <div>
                 <h2>Recent interactions</h2>
-                <p>People, standards and review context</p>
               </div>
               <Link href="/calls" className="text-link">
                 View all interactions
@@ -433,16 +408,16 @@ export default function DashboardPage() {
         return null;
     }
   }
+  const visibleModules = modules
+    .map((key) => ({ key, node: content(key) }))
+    .filter((module) => module.node !== null);
   return (
     <>
       <div className="page-heading">
         <div>
           <div className="eyebrow">YOUR BUSINESS BRIEFING</div>
           <h1>Dashboard</h1>
-          <p>
-            Welcome back, {user.name.split(" ")[0]}. See what needs attention
-            and choose your next action.
-          </p>
+          <p>Welcome back, {user.name.split(" ")[0]}.</p>
         </div>
         <UploadLink
           disabled={!user.operational_access || !user.can_review}
@@ -467,9 +442,14 @@ export default function DashboardPage() {
         <Loading />
       ) : (
         <div className="dashboard-modules">
-          {modules.map((key) => (
-            <div key={key}>{content(key)}</div>
+          {visibleModules.map(({ key, node }) => (
+            <div key={key}>{node}</div>
           ))}
+          {modules.length > 0 && !visibleModules.length && (
+            <p className="notice" role="status">
+              No actionable items in your selected modules.
+            </p>
+          )}
           {!modules.length && (
             <p className="notice">
               All modules are hidden. Use Customize dashboard to restore them.

@@ -23,7 +23,27 @@
 }
 .briefing-attention {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.briefing-priority {
+  border-left: 3px solid var(--warning);
+}
+.signal-recommends > summary {
+  cursor: pointer;
+  border-bottom: 0;
+  flex-wrap: wrap;
+}
+.signal-recommends > summary span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-left: auto;
+}
+.signal-recommends > summary::after {
+  content: "+";
+  color: var(--teal);
+}
+.signal-recommends[open] > summary::after {
+  content: "−";
 }
 .briefing-attention > a {
   display: grid;
