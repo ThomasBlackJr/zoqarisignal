@@ -278,7 +278,7 @@ def complete_review(
 
 
 @router.post("/calls/{call_id}/reevaluate")
-def reevaluate(call_id: str, body: Reevaluation, user=Depends(require("review")), db=Depends(get_db)):
+def reevaluate(call_id: str, body: Reevaluation, user=Depends(require("review", product=True)), db=Depends(get_db)):
     call = lock_call(db, call_id, user)
     if call.status != Status.COMPLETED or not call.transcript or not call.evaluation:
         raise HTTPException(409, "Only a completed call with a saved transcript can be evaluated again")

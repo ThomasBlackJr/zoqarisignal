@@ -11,20 +11,22 @@ import {
   Radio,
   BookOpen,
 } from "lucide-react";
-import { api, Account, Config, User } from "@/lib/api";
+import { api, Account, Config } from "@/lib/api";
+import { BetaAccessNotice } from "./beta-access";
 import { Appearance } from "./preferences";
 import { Brand, ErrorBox, Loading } from "./ui";
 
-const Context = createContext<{ user: User; config: Config } | null>(null);
+const Context = createContext<{ user: Account; config: Config } | null>(null);
 export function useDrive() {
   const value = useContext(Context);
   if (!value) throw new Error("Missing Signal session");
   return value;
 }
 export function Shell({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<{ user: User; config: Config } | null>(
-    null,
-  );
+  const [session, setSession] = useState<{
+    user: Account;
+    config: Config;
+  } | null>(null);
   const [error, setError] = useState("");
   const pathname = usePathname();
   const router = useRouter();
@@ -32,13 +34,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     let active = true;
     api<Account>("/account")
       .then(async (user) => {
-        if (
-          !user.email_verified ||
-          !user.organization_id ||
-          !user.operational_access ||
-          !user.can_review
-        ) {
-          router.replace("/account");
+        if (!user.email_verified) {
+          router.replace("/verify-email");
           return;
         }
         const config = await api<Config>("/config");
@@ -51,6 +48,25 @@ export function Shell({ children }: { children: React.ReactNode }) {
       active = false;
     };
   }, [router]);
+  async function refreshAccess() {
+    try {
+      const user = await api<Account>("/account");
+      setSession((previous) => (previous ? { ...previous, user } : previous));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  useEffect(() => {
+    const refresh = () => {
+      void refreshAccess();
+    };
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
   async function logout() {
     try {
       await api("/auth/logout", { method: "POST" });
@@ -74,6 +90,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Brand />
           </Link>
           <div className="nav-label">WORKSPACE</div>
+          {session.user.is_platform_admin && (
+            <Link href="/platform">Platform administration</Link>
+          )}
           <nav aria-label="Workspace">
             {[
               { href: "/", title: "Dashboard", Icon: LayoutDashboard },
@@ -176,7 +195,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
                             ? "Scorecards"
                             : pathname.startsWith("/calls")
                               ? "Calls / Audits"
-                              : pathname.startsWith("/flagged-terms") ? "Flagged terms" : "Dashboard"}
+                              : pathname.startsWith("/flagged-terms")
+                                ? "Flagged terms"
+                                : "Dashboard"}
               </strong>
             </span>
             <span className="workspace-tag">
@@ -198,7 +219,26 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </div>
             )}
             {error && <ErrorBox message={error} />}
-            {children}
+            {(!session.user.operational_access || !session.user.can_review) && (
+              <BetaAccessNotice
+                user={session.user}
+                refresh={() => void refreshAccess()}
+              />
+            )}
+            {pathname !== "/" &&
+            (!session.user.organization_id ||
+              session.user.organization_suspended ||
+              !session.user.can_review ||
+              ((pathname === "/upload" || pathname === "/batches") &&
+                !session.user.operational_access)) ? (
+              <p>
+                Explore your dashboard or visit{" "}
+                <Link href="/account">Account &amp; access</Link> for membership
+                details.
+              </p>
+            ) : (
+              children
+            )}
           </main>
           <footer>
             Zoqari Signal{" "}

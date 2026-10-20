@@ -124,7 +124,9 @@ def test_invited_employee_cannot_access_operational_data(signed_in, app):
     signed_in.post(
         "/invitations/register", json={"token": token, "email": EMAIL, "name": "Employee", "password": PASSWORD}
     )
-    for path in ["/employees", "/dashboard", "/calls", "/batches", "/team"]:
+    assert signed_in.get("/dashboard").status_code == 200
+    assert signed_in.get("/dashboard").json()["total"] == 0
+    for path in ["/employees", "/calls", "/batches", "/team"]:
         assert signed_in.get(path).status_code == 403
     assert signed_in.get("/account").status_code == 200
     assert signed_in.post("/invitations", json={"email": "next@example.test", "role": "ADMIN"}).status_code == 403

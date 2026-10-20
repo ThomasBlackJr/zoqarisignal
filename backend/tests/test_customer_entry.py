@@ -80,7 +80,7 @@ def test_registration_verification_owner_and_subscription_gate(client, app, wav_
     assert created["role"] == "OWNER" and created["organization_id"] != LEGACY_ORG
     assert client.post("/organizations", json={"name": "Second"}).status_code == 409
     for path in ("/config", "/calls", "/dashboard", "/rubrics", "/onboarding"):
-        assert client.get(path).status_code == 403
+        assert client.get(path).status_code == 200
     assert client.post("/calls", files={"file": ("sample.wav", wav_bytes, "audio/wav")}).status_code == 403
     assert client.get("/account").json()["subscription_status"] == "inactive"
     assert client.post("/subscription/development-activation").status_code == 200
@@ -174,7 +174,12 @@ def test_mail_failure_does_not_claim_delivery_leak_or_create_account(client, app
     app.state.mail.send = Mock(side_effect=RuntimeError(private))
     with caplog.at_level("INFO", logger="drive"):
         response = client.post("/auth/register", json={"name": "Owner", "email": EMAIL, "password": PASSWORD})
-    assert response.status_code == 503
+    assert response.status_code == 201
+    existing = client.post(
+        "/auth/register", json={"name": "Owner", "email": "admin@example.test", "password": PASSWORD}
+    )
+    assert existing.status_code == response.status_code and existing.json()["message"] == response.json()["message"]
+    assert private not in response.text and "set-cookie" not in response.headers
     assert private not in caplog.text and EMAIL not in caplog.text and PASSWORD not in caplog.text
     with app.state.db() as db:
         assert db.scalar(select(User).where(User.email == EMAIL)) is None
@@ -184,15 +189,15 @@ def test_mail_failure_does_not_claim_delivery_leak_or_create_account(client, app
 
 
 @pytest.mark.parametrize("status", ["inactive", "past_due", "canceled", "unknown"])
-def test_subscription_states_block_all_operations_but_keep_account(signed_in, app, status):
+def test_subscription_states_block_analysis_but_keep_workspace(signed_in, app, status):
     with app.state.db() as db:
         grant(db, status=status)
     assert signed_in.get("/account").status_code == 200
-    assert signed_in.get("/dashboard").status_code == 403
+    assert signed_in.get("/dashboard").status_code == 200
     assert signed_in.post("/calls/id/retry").status_code == 403
-    assert signed_in.get("/calls/id/audio").status_code == 403
-    assert signed_in.get("/calls/id/evaluations").status_code == 403
-    assert signed_in.post("/rubrics", json={"name": "New", "categories": []}).status_code == 403
+    assert signed_in.get("/calls/id/audio").status_code == 404
+    assert signed_in.get("/calls/id/evaluations").status_code == 404
+    assert signed_in.post("/rubrics", json={"name": "New", "categories": []}).status_code == 201
 
 
 @pytest.mark.parametrize("mode", ["expired", "unknown_source", "disabled", "trialing"])
@@ -208,7 +213,8 @@ def test_entitlement_requires_known_enabled_unexpired_source(signed_in, app, mod
         else:
             org.subscription_status = "trialing"
         db.commit()
-    assert signed_in.get("/calls").status_code == (200 if mode == "trialing" else 403)
+    assert signed_in.get("/calls").status_code == 200
+    assert signed_in.post("/calls/id/retry").status_code == (404 if mode == "trialing" else 403)
 
 
 @pytest.mark.parametrize("role", [Role.MANAGER, Role.REVIEWER, Role.SUPERVISOR, Role.EMPLOYEE])
@@ -219,7 +225,10 @@ def test_roles_cannot_manage_ownership_scorecards_or_entitlement(signed_in, app,
         db.commit()
     assert signed_in.post("/subscription/development-activation").status_code == 403
     assert signed_in.post("/rubrics", json={"name": "New", "categories": []}).status_code == 403
-    assert signed_in.get("/dashboard").status_code == (403 if role == Role.EMPLOYEE else 200)
+    assert signed_in.get("/dashboard").status_code == 200
+    if role == Role.EMPLOYEE:
+        assert signed_in.get("/dashboard").json()["total"] == 0
+        assert signed_in.get("/calls").status_code == 403
 
 
 @pytest.mark.parametrize(
@@ -273,8 +282,8 @@ def test_access_expires_after_transcription_retry_uses_saved_transcript(signed_i
     processor = app.state.processor
     original = processor.transcription.transcribe
 
-    def transcribe(path):
-        result = original(path)
+    def transcribe(path, **options):
+        result = original(path, **options)
         with app.state.db() as db:
             grant(db, status="past_due")
         return result

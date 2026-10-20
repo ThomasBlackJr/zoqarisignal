@@ -55,6 +55,9 @@ def test_employee_edit_deactivation_permissions_and_tenant_scope(signed_in, app,
     assert signed_in.get("/employees?q=Alex&active=true").json()["total"] == 1
     edited = dict(e, name="Alex updated", active=False)
     edited.pop("id")
+    # Read-only import metadata is not part of the employee edit contract.
+    edited.pop("email")
+    edited.pop("external_id")
     assert signed_in.put("/employees/" + e["id"], json=edited).status_code == 200
     assert signed_in.put("/employees/" + e["id"], json=edited).status_code == 409
     assert (

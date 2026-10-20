@@ -179,3 +179,12 @@
   display: grid;
   gap: 8px;
 }
+.intelligence-panel { padding: 24px; margin-bottom: 24px; }
+.intelligence-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.intelligence-attribute { padding:16px; border:1px solid var(--border,#d9e1e8); border-radius:12px; }
+.intelligence-panel label { display:grid; gap:8px; margin:12px 0; }
+.intelligence-panel input,.intelligence-panel select,.intelligence-panel textarea { width:100%; padding:10px; border:1px solid var(--border,#cad3df); border-radius:7px; background:var(--surface,#fff); color:inherit; font:inherit; }
+.intelligence-actions { display:flex; align-items:end; gap:10px; flex-wrap:wrap; }
+.intelligence-result { padding:16px 0; border-bottom:1px solid var(--border,#d9e1e8); overflow-wrap:anywhere; }
+.intelligence-panel summary { cursor:pointer; font-weight:600; }
+@media(max-width:760px) { .intelligence-grid { grid-template-columns:1fr; } .intelligence-panel { padding:16px; } }

@@ -5,16 +5,19 @@ import { ArrowLeft, RefreshCw, Headphones } from "lucide-react";
 import { api, busy, date, Detail, duration } from "@/lib/api";
 import { ErrorBox, Loading, Status } from "@/components/ui";
 import { AdminControls } from "@/components/admin-controls";
+import { useDrive } from "@/components/shell";
 import { QAReview } from "@/components/qa-review";
 import { FlagEvidence } from "@/components/flags";
 import { TranscriptViewer } from "@/components/transcript-viewer";
 import { EmployeeAssignment } from "@/components/employee-assignment";
+import { CallIntelligence } from "@/components/call-intelligence";
 
 export default function DetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const { user } = useDrive();
   const { id } = use(params);
   const [refresh, setRefresh] = useState(0);
   async function reload() {
@@ -125,7 +128,7 @@ export default function DetailPage({
           <button
             className="button secondary"
             onClick={retry}
-            disabled={retrying}
+            disabled={retrying || !user.operational_access}
           >
             <RefreshCw size={16} />
             {retrying ? "Retrying…" : "Retry processing"}
@@ -164,6 +167,13 @@ export default function DetailPage({
         revision={call.assignment_revision}
         onSaved={reload}
       />
+      {call.transcript && (
+        <CallIntelligence
+          key={`${id}-${call.status}`}
+          callId={id}
+          onSeek={seek}
+        />
+      )}
       <div className="detail-grid">
         <TranscriptViewer
           transcript={call.transcript}

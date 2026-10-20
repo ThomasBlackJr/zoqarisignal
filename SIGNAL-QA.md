@@ -1,3 +1,13 @@
+# Signal QA — call intelligence, 2026-10-17
+
+New coverage includes registered/default company context, provider prompt compatibility, conservative phonetic/context annotations, immutable source spans, first-speaker independence, unknown/conflicting roles, corrected QA regression, all four structured attributes and evidence offsets/timestamps, ambiguity/malformed values, manual verification/removal and optimistic revisions, searchable normalized IDs/partial names/addresses/pagination, tenant and role denial, Order/HAWB-only verified relationships, persistent bidirectional exclusions, permanent-delete cleanup, and competing batch-write transaction regression.
+
+The real browser workflow edits/verifies attributes, checks removal persistence, searches normalized Order #, removes a relationship, inspects history/vocabulary and checks mobile overflow. It cleans up its synthetic calls to preserve existing dashboard-count assertions. Historical employee edit and password-recovery tests now use the existing valid request fields and link labels; the transcription test wrapper accepts the newly optional context argument. An outdated migration test now expects the existing audit-reference downgrade safeguard rather than discarding history.
+
+All test databases/audio/outboxes are temporary. No paid provider requests or live database migration. Desktop/mobile screenshots were inspected. Final validation: **293 backend tests passed, 1 optional PostgreSQL integration skip** (22 dependency/configuration deprecation warnings); **all 17 browser workflows passed**. Ruff, ESLint, TypeScript and production build passed. Browser runner interrupted only after recording every successful outcome because Windows test-server teardown lingered. The isolated test session is reused for non-authentication workflows to keep production sign-in limits unchanged. No unresolved feature-related failures remain.
+
+---
+
 # Signal QA — product corrections and administrative controls
 
 Final validation, 2026-09-21: **181 backend tests passed**, Ruff passed, frontend ESLint/TypeScript/production build passed. **All 12 browser workflows were verified**: the final full run passed the ten existing workflows plus the scorecard/delete/archive workflow; both new product-control workflows then passed in the targeted rerun after fixing a test that clicked an identically labeled checkbox before navigation completed. Earlier fixture updates adopted the new Scorecard labels and reused an isolated test session to respect the unchanged production sign-in limiter. No final unresolved failures.

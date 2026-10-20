@@ -37,12 +37,12 @@ export function AccountFrame({
             <span>
               {invitation
                 ? "02 · Join the existing business"
-                : "02 · Set up your business"}
+                : "02 · Verify and join your business"}
             </span>
             <span>
               {invitation
                 ? "03 · Work with your team"
-                : "03 · Review your first interaction"}
+                : "03 · Enter when access is approved"}
             </span>
           </div>
         </section>

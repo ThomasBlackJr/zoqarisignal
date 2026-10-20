@@ -12,6 +12,7 @@ from .account_routes import issue_session, limit
 from .account_schemas import Email, Registration, Token
 from .auth import current_user, find_user, get_db, hasher, require, token_hash, user_view
 from .logging import event
+from .services.account_audit import account_event
 from .models import Invitation, Organization, User
 
 router = APIRouter()
@@ -89,6 +90,7 @@ def invite(body: Invite, request: Request, user=Depends(require("manage_users"))
     except Exception as exc:
         event("invitation_mail_failed", error_type=type(exc).__name__)
         raise HTTPException(503, "Invitation delivery is unavailable. Check account email configuration.") from None
+    account_event(db, "invitation_sent", actor=user, organization_id=user.organization_id)
     db.commit()
     return {**invite_view(value), "mail_delivery": request.app.state.settings.mail_delivery}
 
@@ -103,13 +105,19 @@ def revoke(invitation_id: str, user=Depends(require("manage_users")), db=Depends
     db.execute(
         update(Invitation).where(Invitation.id == value.id, Invitation.status == "pending").values(status="revoked")
     )
+    account_event(db, "invitation_revoked", actor=user, organization_id=user.organization_id)
     db.commit()
     return {"message": "Pending invitation revoked"}
 
 
-def resolve(db, token, consume=False):
+def resolve(db, token=None, consume=False, *, invitation_id=None, email=None):
+    identity = (
+        Invitation.token_hash == token_hash(token)
+        if token
+        else ((Invitation.id == invitation_id) & (Invitation.email == email))
+    )
     conditions = (
-        Invitation.token_hash == token_hash(token),
+        identity,
         Invitation.status == "pending",
         Invitation.expires_at > time.time(),
     )
@@ -125,6 +133,7 @@ def resolve(db, token, consume=False):
         not value
         or not inviter
         or not inviter.active
+        or not inviter.email_verified
         or inviter.organization_id != value.organization_id
         or inviter.role not in {"OWNER", "ADMIN"}
     ):
@@ -156,6 +165,25 @@ def accept(body: Token, user=Depends(current_user), db=Depends(get_db)):
         raise HTTPException(409, "Your account already belongs to an organization.")
     value.accepted_by = user.id
     value.accepted_at = time.time()
+    account_event(db, "invitation_accepted", user=user, actor=user)
+    db.commit()
+    return {"message": "Joined the existing organization"}
+
+
+@router.post("/invitations/{invitation_id}/accept", dependencies=[Depends(limit)])
+def accept_for_verified_account(invitation_id: str, user=Depends(current_user), db=Depends(get_db)):
+    if not user.email_verified:
+        raise HTTPException(403, "Verify your email before accepting an invitation")
+    value = resolve(db, consume=True, invitation_id=invitation_id, email=user.email)
+    changed = db.execute(
+        update(User)
+        .where(User.id == user.id, User.organization_id.is_(None), User.active.is_(True))
+        .values(organization_id=value.organization_id, role=value.role)
+    )
+    if changed.rowcount != 1:
+        raise HTTPException(409, "Your account already belongs to an organization. Contact your Owner for help.")
+    value.accepted_by, value.accepted_at = user.id, time.time()
+    account_event(db, "invitation_accepted", user=user, actor=user, organization_id=value.organization_id)
     db.commit()
     return {"message": "Joined the existing organization"}
 
@@ -180,6 +208,7 @@ def register(body: Join, request: Request, response: Response, db=Depends(get_db
         db.flush()
         value.accepted_by = user.id
         value.accepted_at = time.time()
+        account_event(db, "invitation_account_created", user=user, actor=user)
         issue_session(db, user, request, response)
     except IntegrityError:
         db.rollback()

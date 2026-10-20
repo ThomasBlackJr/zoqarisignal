@@ -25,7 +25,21 @@ export default function LoginPage() {
           password: data.get("password"),
         }),
       });
-      router.replace(accountDestination(await api<Account>("/account")));
+      const account = await api<Account>("/account");
+      if (!account.email_verified) {
+        let notice = "";
+        try {
+          await api("/auth/verification", { method: "POST" });
+        } catch (e) {
+          notice = (e as Error).message;
+        }
+        const masked = account.email.replace(/^(.).*(@.*)$/, "$1***$2");
+        router.replace(
+          `/verify-email#email=${encodeURIComponent(masked)}${notice ? `&notice=${encodeURIComponent(notice)}` : ""}`,
+        );
+        return;
+      }
+      router.replace(accountDestination(account));
     } catch (e) {
       setError((e as Error).message);
       setPending(false);
@@ -101,7 +115,10 @@ export default function LoginPage() {
             autoComplete="current-password"
             maxLength={256}
           />
-          <button className="button primary login-submit" disabled={!hydrated || pending}>
+          <button
+            className="button primary login-submit"
+            disabled={!hydrated || pending}
+          >
             {pending ? "Signing in…" : "Sign in to Signal"}
             <ArrowRight size={18} />
           </button>

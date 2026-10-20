@@ -1,13 +1,19 @@
-"""One access decision shared by authenticated APIs and the paid processing worker."""
+"""One access decision shared by authenticated APIs and the processing worker."""
 
+import math
 import time
 from fastapi import HTTPException
 from ..models import Organization
 
 
 def operational_access(organization, settings):
-    if organization is None or organization.subscription_status not in {"active", "trialing"}:
+    if organization is None or organization.suspended or organization.subscription_status not in {"active", "trialing"}:
         return False
+    if organization.entitlement_source == "pilot":
+        expires = organization.entitlement_expires_at
+        return organization.subscription_status == "active" and (
+            expires is None or (math.isfinite(expires) and expires > time.time())
+        )
     if not organization.entitlement_expires_at or organization.entitlement_expires_at <= time.time():
         return False
     if organization.entitlement_source == "stripe_live":
@@ -40,10 +46,17 @@ class EntitlementRequired(Exception):
     pass
 
 
-def assert_account_access(user, settings):
+def assert_workspace_access(user):
     if not user.email_verified:
         raise HTTPException(403, "Verify your email before opening the workspace")
     if not user.organization_id:
         raise HTTPException(403, "Create your organization before opening the workspace")
+    if user.organization.suspended:
+        raise HTTPException(403, "Organization access is paused. Contact your administrator.")
+
+
+def assert_account_access(user, settings):
+    """Product access: explicit organization entitlement in addition to workspace identity."""
+    assert_workspace_access(user)
     if not operational_access(user.organization, settings):
-        raise HTTPException(403, "An active subscription or enabled development entitlement is required")
+        raise HTTPException(403, "Beta access required for call upload and AI analysis. Contact your administrator.")

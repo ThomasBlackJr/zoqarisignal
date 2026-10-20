@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 const headers = { "X-Drive-Request": "1", Origin: "http://localhost:3001" };
@@ -8,25 +9,33 @@ test("current manager teams, interaction filters, reporting moves and audit", as
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  expect(
-    (
-      await page.request.post("/api/auth/login", {
-        headers,
-        data: {
-          email: "reviewer@example.test",
-          password: process.env.DRIVE_TEST_PASSWORD!,
-        },
-      })
-    ).ok(),
-  ).toBeTruthy();
-  await page
-    .context()
-    .storageState({
+  const statePath = path.join(
+    process.env.DRIVE_E2E_MAIL_FOLDER!,
+    "controls-session.json",
+  );
+  if (existsSync(statePath)) {
+    await page
+      .context()
+      .addCookies(JSON.parse(readFileSync(statePath, "utf8")).cookies);
+  } else {
+    expect(
+      (
+        await page.request.post("/api/auth/login", {
+          headers,
+          data: {
+            email: "reviewer@example.test",
+            password: process.env.DRIVE_TEST_PASSWORD!,
+          },
+        })
+      ).ok(),
+    ).toBeTruthy();
+    await page.context().storageState({
       path: path.join(
         process.env.DRIVE_E2E_MAIL_FOLDER!,
         "controls-session.json",
       ),
     });
+  }
   const ids: Record<string, string> = {};
   for (const [name, manager] of [
     ["Sarah Johnson", ""],

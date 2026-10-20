@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 
 from .models import Role, Session, User
-from .services.entitlements import assert_account_access
+from .services.entitlements import assert_account_access, assert_workspace_access
 
 hasher = PasswordHasher()
 dummy_hash = hasher.hash(secrets.token_urlsafe(32))
@@ -61,9 +61,32 @@ def current_user(request: Request, db=Depends(get_db)):
     return session.user
 
 
-def require(permission: str):
+def verified_account(user=Depends(current_user)):
+    if not user.email_verified:
+        raise HTTPException(403, "Verify your email before opening the workspace")
+    return user
+
+
+def review_scope(user):
+    """No membership/role/suspended organization means an empty personal dashboard."""
+    return (
+        user.organization_id
+        if (
+            user.organization_id
+            and user.organization
+            and not user.organization.suspended
+            and "review" in PERMISSIONS.get(user.role, set())
+        )
+        else None
+    )
+
+
+def require(permission: str, *, product=False):
     def check(request: Request, user: User = Depends(current_user)):
-        assert_account_access(user, request.app.state.settings)
+        if product:
+            assert_account_access(user, request.app.state.settings)
+        else:
+            assert_workspace_access(user)
         if permission not in PERMISSIONS.get(user.role, set()):
             raise HTTPException(403, "Your role does not permit this action")
         return user
@@ -73,6 +96,9 @@ def require(permission: str):
 
 def user_view(user):
     return {
+        "is_platform_admin": bool(
+            user.active and user.email_verified and user.platform_authority and user.platform_authority.active
+        ),
         "id": user.id,
         "email": user.email,
         "name": user.name,

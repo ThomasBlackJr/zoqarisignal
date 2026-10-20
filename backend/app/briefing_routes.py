@@ -2,7 +2,7 @@ import time
 from sqlalchemy import select
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import Field
-from .auth import get_db, require, PERMISSIONS
+from .auth import get_db, require, PERMISSIONS, verified_account, review_scope
 from .logging import event
 from .models import CoachingDraft
 from .schemas import StrictModel
@@ -30,7 +30,24 @@ def cached(db, org, issue):
 
 
 @router.get("/briefing")
-def briefing(user=Depends(require("review")), db=Depends(get_db)):
+def briefing(user=Depends(verified_account), db=Depends(get_db)):
+    if review_scope(user) is None:
+        return dict(
+            signal_score=None,
+            analyzed=0,
+            limited_sample=True,
+            total=0,
+            active_employees=0,
+            needs_attention=0,
+            requiring_review=0,
+            stale=0,
+            failed=0,
+            awaiting=0,
+            period="All time",
+            issues=[],
+            teams=[],
+            recent=[],
+        )
     value = snapshot(db, user.organization_id)
     saved = {
         d.issue_id: d
@@ -65,7 +82,9 @@ class Generate(StrictModel):
 
 
 @router.post("/briefing/issues/{issue_id}/generate")
-def generate(issue_id: str, body: Generate, request: Request, user=Depends(require("review")), db=Depends(get_db)):
+def generate(
+    issue_id: str, body: Generate, request: Request, user=Depends(require("review", product=True)), db=Depends(get_db)
+):
     if not request.app.state.coaching_lock.acquire(blocking=False):
         raise HTTPException(409, "A draft is being prepared. Please try again shortly.")
     try:

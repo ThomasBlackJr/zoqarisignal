@@ -71,6 +71,24 @@ export function TranscriptViewer({
       ]
     : [];
   const turns = conversation?.turns ?? fallback;
+  const corrections = transcript?.company_corrections ?? [];
+  function display(turn: ConversationTurn) {
+    let text = turn.text;
+    for (const c of [...corrections].sort(
+      (a, b) => b.source_start - a.source_start,
+    )) {
+      if (
+        c.source_start >= turn.source_start &&
+        c.source_end <= turn.source_end
+      ) {
+        const start = c.source_start - turn.source_start,
+          end = c.source_end - turn.source_start;
+        if (text.slice(start, end) === c.original)
+          text = text.slice(0, start) + c.replacement + text.slice(end);
+      }
+    }
+    return text;
+  }
   return (
     <section className="panel transcript-panel">
       <div className="panel-heading">
@@ -93,6 +111,24 @@ export function TranscriptViewer({
       </div>
       {transcript ? (
         <>
+          {corrections.length > 0 && (
+            <details className="audit-history">
+              <summary>
+                Company wording corrections ({corrections.length})
+              </summary>
+              <p>
+                Conversation display uses company context. Raw segments retain
+                the original wording. Similarity is a matching heuristic, not a
+                probability.
+              </p>
+              {corrections.map((c) => (
+                <p key={c.source_start}>
+                  {c.original} → {c.replacement} · source {c.source_start}–
+                  {c.source_end} · {c.method}
+                </p>
+              ))}
+            </details>
+          )}
           <div
             className="transcript-controls"
             role="group"
@@ -111,7 +147,9 @@ export function TranscriptViewer({
                 ? "Speaker IDs supplied by the transcription provider. "
                 : "Audio speaker separation is unavailable. "}
               Role labels inferred from wording are tentative. Unknown means
-              there is not enough information. An operator name appears only when a self-introduction supports the mapping; assignment alone does not identify a voice.
+              there is not enough information. An operator name appears only
+              when a self-introduction supports the mapping; assignment alone
+              does not identify a voice.
               {conversation?.alignment === "full_text_fallback" &&
                 " Showing the original text because reliable segment boundaries are unavailable."}
             </p>
@@ -183,7 +221,7 @@ export function TranscriptViewer({
                       Speaker ID: {turn.speaker_id}
                     </span>
                   )}
-                  <p className="turn-text verbatim-text">{turn.text}</p>
+                  <p className="turn-text verbatim-text">{display(turn)}</p>
                 </article>
               ))
             )}

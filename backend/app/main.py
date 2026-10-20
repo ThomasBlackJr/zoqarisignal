@@ -12,16 +12,19 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from .admin_routes import router as admin_router
+from .intelligence_routes import router as intelligence_router
 from .briefing_routes import router as briefing_router
 from .flag_routes import router as flag_router
 from .import_routes import router as import_router
 from .billing_routes import router as billing_router
 from .services.billing import StripeBilling
 from .auth import COOKIE, current_user, dummy_hash, find_user, get_db, hasher, require, token_hash, user_view, verify
+from .auth import verified_account, review_scope
 from .config import Settings
 from .db import make_database
 from .logging import event
-from .models import Call, Evaluation, Session, Status, User, SpeakerCorrection
+from .models import Call, Evaluation, Session, Status, User, SpeakerCorrection, Organization
+from .services.company_context import company_annotations, vocabulary
 from .schemas import Login, NewUser
 from .services.ingestion import ingest
 from .services.flags import current_flag_query
@@ -38,8 +41,11 @@ from .services.providers import build_services, build_coaching
 from .services.rubric import active_rubric, rubric_items
 from .services.reviews import evaluation_view, corrected_conversation
 from .review_routes import router as review_router
-from .account_routes import router as account_router, AccountLimiter, issue_session
+from .account_routes import router as account_router, AccountLimiter, issue_session, limit
+from .services.verification import issue_code
 from .services.account_mail import build_mail
+from .services.account_audit import account_event
+from .platform_routes import router as platform_router
 from typing import Literal
 
 
@@ -82,6 +88,11 @@ def call_view(call: Call, detail=False, db=None, flagged=None):
                 else conversation_for(call.transcript),
                 "provider": call.transcript.provider,
                 "model": call.transcript.model,
+                "company_corrections": call.transcript.company_corrections
+                if call.transcript.company_corrections is not None
+                else company_annotations(call.transcript.text, vocabulary(db.get(Organization, call.organization_id)))
+                if db
+                else [],
             }
             if call.transcript
             else None
@@ -107,6 +118,7 @@ def create_app(settings: Settings | None = None, services=None):
 
     app = FastAPI(title="Zoqari Signal API", lifespan=lifespan)
     app.include_router(admin_router)
+    app.include_router(intelligence_router)
     app.include_router(briefing_router)
     app.include_router(flag_router)
     app.include_router(import_router)
@@ -118,6 +130,7 @@ def create_app(settings: Settings | None = None, services=None):
     app.include_router(hierarchy_router)
     app.include_router(team_router)
     app.include_router(preference_router)
+    app.include_router(platform_router)
     app.state.settings = settings
     app.state.coaching = build_coaching(settings)
     app.state.coaching_lock = threading.Lock()
@@ -187,8 +200,10 @@ def create_app(settings: Settings | None = None, services=None):
             recent.append(now)
         user = find_user(db, body.email)
         valid = verify(body.password, user.password_hash if user else dummy_hash)
-        if not user or not valid or not user.active:
+        if not user or not valid:
             raise HTTPException(401, "Email or password is incorrect")
+        if not user.active:
+            raise HTTPException(403, "Your account is inactive. Contact Zoqari or your organization Owner.")
         if hasher.check_needs_rehash(user.password_hash):
             user.password_hash = hasher.hash(body.password)
         issue_session(db, user, request, response)
@@ -198,6 +213,9 @@ def create_app(settings: Settings | None = None, services=None):
     def logout(request: Request, response: Response, db=Depends(get_db)):
         token = request.cookies.get(COOKIE)
         if token:
+            prior = db.get(Session, token_hash(token))
+            if prior:
+                account_event(db, "session_ended", user=prior.user, actor=prior.user)
             db.execute(delete(Session).where(Session.token_hash == token_hash(token)))
             db.commit()
         response.delete_cookie(COOKIE, path="/", secure=settings.cookie_secure, httponly=True, samesite="strict")
@@ -206,8 +224,8 @@ def create_app(settings: Settings | None = None, services=None):
     def me(user=Depends(current_user)):
         return user_view(user)
 
-    @app.post("/users", status_code=201)
-    def add_user(body: NewUser, user=Depends(require("manage_users")), db=Depends(get_db)):
+    @app.post("/users", status_code=201, dependencies=[Depends(limit)])
+    def add_user(body: NewUser, request: Request, user=Depends(require("manage_users")), db=Depends(get_db)):
         if body.role == "OWNER":
             raise HTTPException(403, "Owner assignment is reserved for organization creation")
         created = User(
@@ -219,6 +237,9 @@ def create_app(settings: Settings | None = None, services=None):
         )
         db.add(created)
         try:
+            db.flush()
+            issue_code(db, created, request)
+            account_event(db, "account_created_by_owner", user=created, actor=user)
             db.commit()
         except IntegrityError as exc:
             db.rollback()
@@ -226,9 +247,9 @@ def create_app(settings: Settings | None = None, services=None):
         return user_view(created)
 
     @app.get("/config")
-    def config(user=Depends(require("review")), db=Depends(get_db)):
+    def config(user=Depends(verified_account), db=Depends(get_db)):
         try:
-            rubric = active_rubric(db, user.organization_id)
+            rubric = active_rubric(db, review_scope(user)) if review_scope(user) else None
         except ValueError:
             rubric = None
         return {
@@ -239,7 +260,19 @@ def create_app(settings: Settings | None = None, services=None):
         }
 
     @app.get("/dashboard")
-    def dashboard(user=Depends(require("review")), db=Depends(get_db)):
+    def dashboard(user=Depends(verified_account), db=Depends(get_db)):
+        scope = review_scope(user)
+        if scope is None:
+            return {
+                "total": 0,
+                "processed": 0,
+                "requiring_review": 0,
+                "awaiting": 0,
+                "failed": 0,
+                "average_score": None,
+                "performance": current_performance([], db),
+                "recent": [],
+            }
         counts = dict(
             db.execute(
                 select(Call.status, func.count())
@@ -385,7 +418,7 @@ def create_app(settings: Settings | None = None, services=None):
         file: UploadFile = File(...),
         rubric_id: str | None = Form(None),
         employee_id: str | None = Form(None),
-        user=Depends(require("review")),
+        user=Depends(require("review", product=True)),
         db=Depends(get_db),
     ):
         call = await ingest(
@@ -421,7 +454,7 @@ def create_app(settings: Settings | None = None, services=None):
         )
 
     @app.post("/calls/{call_id}/retry")
-    def retry(call_id: str, user=Depends(require("review")), db=Depends(get_db)):
+    def retry(call_id: str, user=Depends(require("review", product=True)), db=Depends(get_db)):
         get_call(call_id, db, user)
         result = db.execute(
             update(Call)

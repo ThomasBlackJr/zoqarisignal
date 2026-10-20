@@ -98,7 +98,7 @@ def batch_view(batch):
 
 
 @router.post("/batches", status_code=201)
-def create_batch(body: Manifest, request: Request, user=Depends(require("review")), db=Depends(get_db)):
+def create_batch(body: Manifest, request: Request, user=Depends(require("review", product=True)), db=Depends(get_db)):
     fingerprint = hashlib.sha256(json.dumps([f.model_dump() for f in body.files], sort_keys=True).encode()).hexdigest()
     db.execute(update(Organization).where(Organization.id == user.organization_id).values(id=Organization.id))
     existing = db.scalar(
@@ -166,7 +166,7 @@ async def upload_item(
     item_id: str,
     request: Request,
     file: UploadFile = File(...),
-    user=Depends(require("review")),
+    user=Depends(require("review", product=True)),
     db=Depends(get_db),
 ):
     batch = get_batch(db, batch_id, user)

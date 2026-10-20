@@ -8,6 +8,19 @@ process.env.DRIVE_TEST_PASSWORD ??= randomBytes(24).toString("base64url");
 process.env.DRIVE_E2E_MAIL_FOLDER ??= mkdtempSync(
   path.join(tmpdir(), "signal-test-mail-"),
 );
+// Always disposable; the pilot operator test must never target a workspace DB.
+process.env.DRIVE_E2E_DB_FOLDER ??= mkdtempSync(
+  path.join(tmpdir(), "signal-test-db-"),
+);
+if (
+  path.dirname(path.resolve(process.env.DRIVE_E2E_DB_FOLDER)) !==
+    path.resolve(tmpdir()) ||
+  !path.basename(process.env.DRIVE_E2E_DB_FOLDER).startsWith("signal-test-db-")
+) {
+  throw new Error(
+    "Browser-test database must be in its disposable temporary folder",
+  );
+}
 const python = path.resolve(
   "..",
   ".venv",

@@ -3,6 +3,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { ManagerPicker } from "@/components/manager-picker";
+import { IntelligenceSearch } from "@/components/call-intelligence";
+import { TranscriptionVocabulary } from "@/components/transcription-vocabulary";
 import { api, Call } from "@/lib/api";
 import { CallTable, ErrorBox, Loading, UploadLink } from "@/components/ui";
 
@@ -138,6 +140,8 @@ function CallsContent() {
         </div>
         <UploadLink />
       </div>
+      <IntelligenceSearch />
+      <TranscriptionVocabulary />
       <section className="panel">
         <div className="filters">
           <div className="search">

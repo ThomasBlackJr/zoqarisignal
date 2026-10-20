@@ -1,12 +1,19 @@
 import { expect, test } from "@playwright/test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 function localLink(email: string, purpose: string) {
   const folder = process.env.DRIVE_E2E_MAIL_FOLDER!;
-  const messages = readdirSync(folder).map((name) =>
-    readFileSync(path.join(folder, name), "utf8").replace(/\r\n/g, "\n"),
-  );
+  const messages = readdirSync(folder)
+    .filter((name) => name.endsWith(".txt"))
+    .sort(
+      (a, b) =>
+        statSync(path.join(folder, b)).mtimeMs -
+        statSync(path.join(folder, a)).mtimeMs,
+    )
+    .map((name) =>
+      readFileSync(path.join(folder, name), "utf8").replace(/\r\n/g, "\n"),
+    );
   const message = messages.find(
     (text) =>
       text.includes("To: " + email + "\n") &&
@@ -56,6 +63,7 @@ test("credential forms cannot submit a GET before JavaScript is ready", async ({
 test("customer registers, verifies, creates an isolated business, activates development access and reviews", async ({
   page,
 }) => {
+  test.setTimeout(150000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const email = "new-owner@customer.test";
@@ -68,24 +76,67 @@ test("customer registers, verifies, creates an isolated business, activates deve
     .getByRole("button", { name: "Create account", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Verify your business email" }),
+    page.getByRole("heading", { name: "Verify your email" }),
   ).toBeVisible();
   await expect(
     page.getByText(/LOCAL DEVELOPMENT · No email was sent/),
   ).toBeVisible();
+  const originalCode = localLink(email, "verify_code");
+  const originalChallenge = new URLSearchParams(
+    new URL(page.url()).hash.slice(1),
+  ).get("challenge");
+  await expect(
+    page.getByLabel("Verification code", { exact: true }),
+  ).toHaveAttribute("autocomplete", "one-time-code");
+  await expect(
+    page.getByRole("button", { name: /Resend code in/ }),
+  ).toBeDisabled();
+  await page
+    .getByLabel("Verification code", { exact: true })
+    .fill(originalCode === "000000" ? "000001" : "000000");
+  await page.getByRole("button", { name: "Verify email", exact: true }).click();
+  await expect(page.locator(".error[role=alert]")).toContainText(
+    "Code is invalid, expired or already used",
+  );
+  const resend = page.getByRole("button", { name: "Resend code", exact: true });
+  await expect(resend).toBeEnabled({ timeout: 70000 });
+  await resend.click();
+  await expect(page.getByRole("status")).toContainText(
+    "A new code was requested",
+  );
+  await expect(
+    page.getByLabel("Verification code", { exact: true }),
+  ).toHaveValue("");
+  const newChallenge = new URLSearchParams(
+    new URL(page.url()).hash.slice(1),
+  ).get("challenge");
+  expect(newChallenge).not.toBe(originalChallenge);
+  const oldAttempt = await page.request.post("/api/auth/verify-email", {
+    headers: { "X-Drive-Request": "1", Origin: "http://localhost:3001" },
+    data: { code: originalCode, challenge: originalChallenge },
+  });
+  expect(oldAttempt.status()).toBe(400);
   await page
     .getByLabel("Verification code", { exact: true })
     .fill(localLink(email, "verify_code"));
   await page.getByRole("button", { name: "Verify email", exact: true }).click();
-  await page.getByRole("link", { name: "Continue to account" }).click();
+  await page.getByRole("link", { name: "Continue to Signal" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Dashboard", exact: true }),
+  ).toBeVisible();
+  await page.goto("/account");
   await page.getByLabel("Business name").fill("Customer Services");
   await page.getByRole("button", { name: "Create organization" }).click();
   await expect(
-    page.getByRole("heading", { name: "Operational access required" }),
+    page.getByRole("heading", { name: "Signal Access" }),
   ).toBeVisible();
   // Direct navigation cannot bypass the backend access boundary.
   await page.goto("/upload");
-  await expect(page).toHaveURL(/\/account$/);
+  await expect(page).toHaveURL(/\/upload$/);
+  await expect(
+    page.getByRole("button", { name: "Beta access required", exact: true }),
+  ).toBeDisabled();
+  await page.goto("/account");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: "test-results/customer-access-mobile.png",
@@ -97,7 +148,7 @@ test("customer registers, verifies, creates an isolated business, activates deve
   await expect(
     page.getByText("No payment was taken.", { exact: false }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Continue setup" }).click();
+  await page.getByRole("link", { name: "Setup guide (optional)" }).click();
   await expect(
     page.getByRole("heading", { name: "Your first quality review" }),
   ).toBeVisible();
@@ -165,9 +216,11 @@ test("password recovery uses the real local mail adapter and new password", asyn
     .getByRole("button", { name: "Create account", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Verify your business email" }),
+    page.getByRole("heading", { name: "Verify your email" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Reset password", exact: true }).click();
+  await page
+    .getByRole("link", { name: "reset your password", exact: true })
+    .click();
   await page.getByLabel("Business email").fill(email);
   await page.getByRole("button", { name: "Request reset link" }).click();
   await expect(page.getByRole("status")).toContainText("no email was sent");
@@ -181,6 +234,6 @@ test("password recovery uses the real local mail adapter and new password", asyn
     .fill("new-customer-passphrase-123");
   await page.getByRole("button", { name: "Sign in to Signal" }).click();
   await expect(
-    page.getByRole("heading", { name: "Verify your business email" }),
+    page.getByRole("heading", { name: "Verify your email" }),
   ).toBeVisible();
 });

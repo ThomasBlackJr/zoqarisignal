@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Dialog } from "./dialog";
+import { useDrive } from "./shell";
 import { ErrorBox, Loading } from "./ui";
 
 export type Issue = {
@@ -105,6 +106,7 @@ export function IssueDialog({
   email: boolean;
   onClose: () => void;
 }) {
+  const { user } = useDrive();
   const [data, setData] = useState<Details | null>(null);
   const [offset, setOffset] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -213,7 +215,7 @@ export function IssueDialog({
               {!draft && (
                 <button
                   className="button primary"
-                  disabled={busy}
+                  disabled={busy || !user.operational_access}
                   onClick={() => void generate()}
                 >
                   {busy
@@ -290,7 +292,7 @@ export function IssueDialog({
                 </button>
                 <button
                   className="button secondary"
-                  disabled={busy}
+                  disabled={busy || !user.operational_access}
                   onClick={() =>
                     dirty ? setConfirmReplace(true) : void generate(true)
                   }

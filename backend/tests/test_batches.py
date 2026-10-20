@@ -144,7 +144,7 @@ def test_entitlement_and_roles_block_batches(signed_in, app, wav_bytes):
     with app.state.db() as db:
         db.get(Organization, LEGACY_ORG).subscription_status = "inactive"
         db.commit()
-    assert signed_in.get("/batches").status_code == 403
+    assert signed_in.get("/batches").status_code == 200
     assert (
         signed_in.post(
             "/batches", json={"request_key": "blocked-key-0001", "files": [{"filename": "one.wav", "size_bytes": 1}]}

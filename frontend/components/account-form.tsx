@@ -1,8 +1,8 @@
 "use client";
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, Account, accountDestination } from "@/lib/api";
 import { useHydrated } from "@/lib/use-hydrated";
 import { AccountFrame } from "./account-frame";
 import { ErrorBox } from "./ui";
@@ -30,11 +30,32 @@ export function AccountForm({ kind }: { kind: Kind }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const submitting = useRef(false);
+  const [nextStep, setNextStep] = useState("");
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current) return;
     setError("");
-    setPending(true);
     const data = new FormData(event.currentTarget);
+    if (kind === "register" || kind === "reset-password") {
+      const password = String(data.get("password") || "");
+      const length = Array.from(password).length;
+      if (length < 12 || length > 256) {
+        setError(
+          "Use at least 12 characters and no more than 256 characters for your password.",
+        );
+        return;
+      }
+    }
+    if (!event.currentTarget.reportValidity()) return;
+    submitting.current = true;
+    setPending(true);
+    let navigating = false;
+    function navigate(destination: string) {
+      navigating = true;
+      setNextStep(destination);
+      router.replace(destination);
+    }
     const body =
       kind === "register"
         ? {
@@ -52,12 +73,28 @@ export function AccountForm({ kind }: { kind: Kind }) {
         message?: string;
         mail_delivery?: string;
         challenge?: string;
+        signed_in?: boolean;
       }>("/auth/" + kind, { method: "POST", body: JSON.stringify(body) });
       if (token)
         window.history.replaceState(null, "", window.location.pathname);
       if (kind === "register") {
-        router.replace(
-          `/verify-email#challenge=${encodeURIComponent(result.challenge || "")}`,
+        if (result.signed_in) {
+          const account = await api<Account>("/account");
+          if (!account.email_verified) {
+            let notice = "";
+            try {
+              await api("/auth/verification", { method: "POST" });
+            } catch (e) {
+              notice = (e as Error).message;
+            }
+            navigate(
+              `/verify-email#email=${encodeURIComponent(account.email.replace(/^(.).*(@.*)$/, "$1***$2"))}${notice ? `&notice=${encodeURIComponent(notice)}` : ""}`,
+            );
+          } else navigate(accountDestination(account));
+          return;
+        }
+        navigate(
+          `/verify-email#challenge=${encodeURIComponent(result.challenge || "")}&email=${encodeURIComponent(String(data.get("email")).replace(/^(.).*(@.*)$/, "$1***$2"))}`,
         );
         return;
       }
@@ -70,7 +107,10 @@ export function AccountForm({ kind }: { kind: Kind }) {
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setPending(false);
+      if (!navigating) {
+        submitting.current = false;
+        setPending(false);
+      }
     }
   }
   return (
@@ -79,13 +119,20 @@ export function AccountForm({ kind }: { kind: Kind }) {
       <h2>{titles[kind]}</h2>
       <p className="muted">
         {kind === "register"
-          ? "Start with your business email. Operational access requires a subscription."
+          ? "Create an account with your business email. Join your team or request free pilot access for your organization. Already registered? Sign in instead."
           : kind === "forgot-password"
             ? "Request a link to recover access to your account."
             : "Links expire and can be used once. Confirm below to continue."}
       </p>
       {error && <ErrorBox message={error} />}
-      {message ? (
+      {nextStep ? (
+        <div role="status">
+          <p>Registration submitted. Opening your next step…</p>
+          <Link className="button primary" href={nextStep}>
+            Continue
+          </Link>
+        </div>
+      ) : message ? (
         <div role="status">
           <p>{message}</p>
           <Link
@@ -99,73 +146,77 @@ export function AccountForm({ kind }: { kind: Kind }) {
         </div>
       ) : (
         <form className="account-form" method="post" onSubmit={submit}>
-          {kind === "register" && (
-            <>
-              <label htmlFor="name">Your name</label>
-              <input
-                id="name"
-                name="name"
-                autoComplete="name"
-                maxLength={100}
-                required
-              />
-            </>
-          )}
-          {(kind === "register" || kind === "forgot-password") && (
-            <>
-              <label htmlFor="email">Business email</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                maxLength={254}
-                required
-              />
-            </>
-          )}
-          {(kind === "register" || kind === "reset-password") && (
-            <>
-              <label htmlFor="password">New password</label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                minLength={12}
-                maxLength={256}
-                aria-describedby="password-help"
-                required
-              />
-              <small id="password-help">
-                Use at least 12 characters. A unique passphrase works well.
-              </small>
-            </>
-          )}
-          {(kind === "verify-email" || kind === "reset-password") && !token && (
-            <p role="status">
-              Open the full link from your email. If it has expired, request a
-              new link.
-            </p>
-          )}
-          <button
-            className="button primary"
-            disabled={
-              !hydrated ||
-              pending ||
-              ((kind === "verify-email" || kind === "reset-password") && !token)
-            }
-          >
-            {pending
-              ? "Working…"
-              : kind === "register"
-                ? "Create account"
-                : kind === "forgot-password"
-                  ? "Request reset link"
-                  : kind === "verify-email"
-                    ? "Confirm email verification"
-                    : "Change password"}
-          </button>
+          <fieldset disabled={pending}>
+            {kind === "register" && (
+              <>
+                <label htmlFor="name">Your name</label>
+                <input
+                  id="name"
+                  name="name"
+                  autoComplete="name"
+                  maxLength={100}
+                  required
+                />
+              </>
+            )}
+            {(kind === "register" || kind === "forgot-password") && (
+              <>
+                <label htmlFor="email">Business email</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  required
+                />
+              </>
+            )}
+            {(kind === "register" || kind === "reset-password") && (
+              <>
+                <label htmlFor="password">New password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={256}
+                  aria-describedby="password-help"
+                  required
+                />
+                <small id="password-help">
+                  Use at least 12 characters. A unique passphrase works well.
+                </small>
+              </>
+            )}
+            {(kind === "verify-email" || kind === "reset-password") &&
+              !token && (
+                <p role="status">
+                  Open the full link from your email. If it has expired, request
+                  a new link.
+                </p>
+              )}
+            <button
+              className="button primary"
+              disabled={
+                !hydrated ||
+                pending ||
+                ((kind === "verify-email" || kind === "reset-password") &&
+                  !token)
+              }
+            >
+              {pending
+                ? "Working…"
+                : kind === "register"
+                  ? "Create account"
+                  : kind === "forgot-password"
+                    ? "Request reset link"
+                    : kind === "verify-email"
+                      ? "Confirm email verification"
+                      : "Change password"}
+            </button>
+          </fieldset>
         </form>
       )}
       <div className="account-links">

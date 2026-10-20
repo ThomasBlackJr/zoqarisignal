@@ -444,7 +444,14 @@ export default function DashboardPage() {
             and choose your next action.
           </p>
         </div>
-        <UploadLink />
+        <UploadLink
+          disabled={!user.operational_access || !user.can_review}
+          disabledLabel={
+            user.operational_access && !user.can_review
+              ? "Upload unavailable for your role"
+              : "Beta access required"
+          }
+        />
       </div>
       <div className="briefing-toolbar">
         <DashboardEditor />

@@ -76,6 +76,9 @@ def evaluation_view(evaluation):
 
 def corrected_conversation(transcript, db):
     value = conversation_for(transcript)
+    from .speaker_roles import enhance_roles
+
+    enhance_roles(value["turns"])
     call = db.get(Call, transcript.call_id)
     operator = (
         call.employee if call and call.employee and call.employee.organization_id == call.organization_id else None

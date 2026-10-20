@@ -4,7 +4,6 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useHydrated } from "@/lib/use-hydrated";
 import { AccountFrame } from "./account-frame";
-import { AccountForm } from "./account-form";
 import { ErrorBox } from "./ui";
 const subscribe = (fn: () => void) => {
   window.addEventListener("hashchange", fn);
@@ -36,15 +35,24 @@ export function VerificationCode() {
     );
     return () => clearInterval(timer);
   }, []);
-  if (params.has("token")) return <AccountForm kind="verify-email" />;
   return (
     <AccountFrame>
       <div className="eyebrow">VERIFY YOUR ACCOUNT</div>
-      <h2>Verify your business email</h2>
+      <h2>Verify your email</h2>
       <p>
-        Enter the six-digit code from your email. It expires after 15 minutes
-        and can be used once.
+        If this address needs verification, a 6-digit code has been requested
+        {params.get("email")
+          ? ` for ${params.get("email")}`
+          : " for your email address"}
+        . It expires after 15 minutes and can be used once. Already verified?
+        Sign in instead.
       </p>
+      {params.has("token") && (
+        <p className="muted">
+          Verification links are no longer used. Sign in to request a new
+          six-digit code.
+        </p>
+      )}
       {mode === "local" && (
         <p className="development-note">
           LOCAL DEVELOPMENT · No email was sent. The code is in the private
@@ -52,10 +60,16 @@ export function VerificationCode() {
         </p>
       )}
       {error && <ErrorBox message={error} />}{" "}
+      {params.get("notice") && (
+        <p role="status">
+          {params.get("notice")}. Check your latest email, or request a new code
+          below.
+        </p>
+      )}
       {message && <p role="status">{message}</p>}
       {done ? (
-        <Link className="button primary" href="/account">
-          Continue to account
+        <Link className="button primary" href="/">
+          Continue to Signal
         </Link>
       ) : (
         <>
@@ -133,7 +147,7 @@ export function VerificationCode() {
                   window.history.replaceState(
                     null,
                     "",
-                    `#challenge=${encodeURIComponent(v.challenge)}`,
+                    `#challenge=${encodeURIComponent(v.challenge)}${params.get("email") ? `&email=${encodeURIComponent(params.get("email")!)}` : ""}`,
                   );
                   window.dispatchEvent(new HashChangeEvent("hashchange"));
                 }
@@ -154,6 +168,10 @@ export function VerificationCode() {
           <p className="muted">
             Already have an account? <Link href="/login">Sign in</Link> or{" "}
             <Link href="/forgot-password">reset your password</Link>.
+          </p>
+          <p>
+            <Link href="/register">Change email</Link> · This starts signup with
+            a different address; it does not change an existing account.
           </p>
         </>
       )}

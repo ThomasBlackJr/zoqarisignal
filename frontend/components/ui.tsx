@@ -56,7 +56,19 @@ export function ErrorBox({ message }: { message: string }) {
     </div>
   );
 }
-export function UploadLink() {
+export function UploadLink({
+  disabled = false,
+  disabledLabel = "Beta access required",
+}: {
+  disabled?: boolean;
+  disabledLabel?: string;
+}) {
+  if (disabled)
+    return (
+      <button className="button primary" disabled>
+        {disabledLabel}
+      </button>
+    );
   return (
     <Link className="button primary" href="/upload">
       <Upload size={17} />
@@ -102,7 +114,10 @@ export function CallTable({ calls }: { calls: Call[] }) {
                   </span>
                   <span>
                     <strong>{call.filename}</strong>
-                    <small>{call.audit_number}{call.flagged ? " · Flagged" : ""}</small>
+                    <small>
+                      {call.audit_number}
+                      {call.flagged ? " · Flagged" : ""}
+                    </small>
                     <small>
                       {call.id.slice(0, 8).toUpperCase()}
                       {call.is_demo ? " · DEMO" : ""}

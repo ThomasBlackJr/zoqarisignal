@@ -9,10 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
-from .account_schemas import CompleteSetup, Email, OrganizationCreate, Registration, Reset, Token
-from .auth import COOKIE, current_user, find_user, get_db, hasher, require, token_hash, user_view
+from .account_schemas import CompleteSetup, Email, OrganizationCreate, Registration, Reset
+from .auth import COOKIE, current_user, find_user, get_db, hasher, require, token_hash, user_view, verify
 from .logging import event
-from .models import AccountToken, Call, EntitlementEvent, Organization, Role, Session, User
+from .models import AccountToken, Call, EntitlementEvent, Invitation, Organization, Role, Session, User
+from .services.account_audit import account_event
 from .services.entitlements import operational_access
 from .services.rubric import create_starter_rubric
 from .services.verification import issue_code, redeem_code
@@ -59,6 +60,8 @@ def issue_session(db, user, request, response):
     token = secrets.token_urlsafe(32)
     seconds = settings.session_hours * 3600
     db.add(Session(token_hash=token_hash(token), user_id=user.id, expires_at=now + seconds))
+    user.last_login_at = now
+    account_event(db, "session_started", user=user, actor=user)
     db.commit()
     response.set_cookie(
         COOKIE, token, max_age=seconds, httponly=True, secure=settings.cookie_secure, samesite="strict", path="/"
@@ -66,15 +69,17 @@ def issue_session(db, user, request, response):
 
 
 def send_token(db, user, purpose, request):
+    if purpose != "reset":
+        raise ValueError("Verification uses issue_code; this helper issues password-reset links only")
     # Serialize token replacement for this account, including concurrent resend requests.
     db.execute(update(User).where(User.id == user.id).values(active=User.active))
     db.execute(delete(AccountToken).where(AccountToken.user_id == user.id, AccountToken.purpose == purpose))
     token = secrets.token_urlsafe(32)
-    lifetime = 3600 if purpose == "verify" else 1800
+    lifetime = 1800
     db.add(
         AccountToken(token_hash=token_hash(token), user_id=user.id, purpose=purpose, expires_at=time.time() + lifetime)
     )
-    path = "verify-email" if purpose == "verify" else "reset-password"
+    path = "reset-password"
     # Fragment never reaches HTTP access logs or Referer headers.
     link = request.app.state.settings.frontend_origin + "/" + path + "#token=" + token
     try:
@@ -113,9 +118,27 @@ def options(request: Request):
 def register(body: Registration, request: Request, response: Response, db=Depends(get_db)):
     if request.app.state.settings.mail_delivery == "disabled":
         raise HTTPException(503, "Registration requires configured account email delivery.")
-    # Same public response for existing and new addresses; no session until code redemption.
+    # Public responses conceal address state; proven existing credentials may sign in.
     password_hash = hasher.hash(body.password)
-    if find_user(db, body.email):
+    existing = find_user(db, body.email)
+    if existing:
+        # Correct existing credentials are authentication, not public account disclosure.
+        # Continue as sign-in instead of pretending a verified account needs a new code.
+        if verify(body.password, existing.password_hash):
+            if not existing.active:
+                raise HTTPException(403, "Your account is inactive. Contact Zoqari or your organization Owner.")
+            issue_session(db, existing, request, response)
+            return {**registration_view(secrets.token_urlsafe(32), request), "signed_in": True}
+        # A repeat signup must never replace credentials or reveal account status.
+        # Unverified recipients may request another code after the same persisted cooldown.
+        if existing.active and not existing.email_verified:
+            try:
+                challenge = issue_code(db, existing, request)
+                account_event(db, "verification_requested", user=existing)
+                db.commit()
+                return registration_view(challenge, request)
+            except HTTPException:
+                db.rollback()
         return registration_view(secrets.token_urlsafe(32), request)
     user = User(
         email=body.email,
@@ -128,9 +151,17 @@ def register(body: Registration, request: Request, response: Response, db=Depend
     try:
         db.flush()
         challenge = issue_code(db, user, request)
+        account_event(db, "account_registered", user=user)
         db.commit()
     except IntegrityError:
         db.rollback()
+        return registration_view(secrets.token_urlsafe(32), request)
+    except HTTPException as exc:
+        db.rollback()
+        if exc.status_code != 503:
+            raise
+        # Delivery errors must not distinguish a new address from an existing
+        # one. The sanitized operator event remains available for diagnosis.
         return registration_view(secrets.token_urlsafe(32), request)
     return registration_view(challenge, request)
 
@@ -158,6 +189,7 @@ def resend(request: Request, user=Depends(current_user), db=Depends(get_db)):
     if user.email_verified:
         return {"message": "Email is already verified"}
     challenge = issue_code(db, user, request)
+    account_event(db, "verification_requested", user=user, actor=user)
     db.commit()
     return registration_view(challenge, request)
 
@@ -171,20 +203,16 @@ def resend_code(body: ResendCode, request: Request, db=Depends(get_db)):
     if not user.active or user.email_verified:
         return registration_view(secrets.token_urlsafe(32), request)
     challenge = issue_code(db, user, request)
+    account_event(db, "verification_requested", user=user)
     db.commit()
     return registration_view(challenge, request)
 
 
 @router.post("/auth/verify-email", dependencies=[Depends(limit)])
-def verify_email(body: CodeBody | Token, request: Request, response: Response, db=Depends(get_db)):
-    if isinstance(body, Token):
-        # Honor unexpired links issued before migration, without creating new link-based verification.
-        user = consume_token(db, body.token, "verify")
-        user.email_verified = True
-        db.execute(delete(AccountToken).where(AccountToken.user_id == user.id, AccountToken.purpose == "verify"))
-    else:
-        signed = current_user(request, db) if not body.challenge else None
-        user = redeem_code(db, body.code, body.challenge, signed)
+def verify_email(body: CodeBody, request: Request, response: Response, db=Depends(get_db)):
+    signed = current_user(request, db) if not body.challenge else None
+    user = redeem_code(db, body.code, body.challenge, signed)
+    account_event(db, "email_verified", user=user, actor=user)
     issue_session(db, user, request, response)
     return {"message": "Email verified. Continue to your account."}
 
@@ -197,6 +225,7 @@ def forgot(body: Email, request: Request, db=Depends(get_db)):
     if user and user.active:
         try:
             send_token(db, user, "reset", request)
+            account_event(db, "password_reset_requested", user=user)
             db.commit()
         except HTTPException:
             db.rollback()
@@ -211,6 +240,7 @@ def forgot(body: Email, request: Request, db=Depends(get_db)):
 def reset(body: Reset, request: Request, response: Response, db=Depends(get_db)):
     user = consume_token(db, body.token, "reset")
     user.password_hash = hasher.hash(body.password)
+    account_event(db, "password_reset_completed", user=user, actor=user)
     db.execute(delete(Session).where(Session.user_id == user.id))
     db.execute(delete(AccountToken).where(AccountToken.user_id == user.id, AccountToken.purpose == "reset"))
     db.commit()
@@ -242,6 +272,7 @@ def create_organization(body: OrganizationCreate, user=Depends(verified), db=Dep
         db.rollback()
         raise HTTPException(409, "Your account already belongs to an organization")
     create_starter_rubric(db, organization.id, user.id)
+    account_event(db, "organization_created", user=user, actor=user, organization_id=organization.id)
     db.commit()
     db.refresh(user)
     return user_view(user)
@@ -252,6 +283,10 @@ def account(request: Request, user=Depends(current_user)):
     settings = request.app.state.settings
     organization = user.organization
     access = operational_access(organization, settings)
+    pending = []
+    if user.email_verified and not user.organization_id:
+        invitations = db_invitations(request, user)
+        pending = invitations
     return {
         **user_view(user),
         "operational_access": access,
@@ -267,7 +302,31 @@ def account(request: Request, user=Depends(current_user)):
             request.app.state.settings.stripe_secret_key and request.app.state.settings.stripe_webhook_secret
         ),
         "onboarding_completed": organization.onboarding_completed if organization else False,
+        "organization_suspended": bool(organization and organization.suspended),
+        "pending_invitations": pending,
     }
+
+
+def db_invitations(request, user):
+    # Verified identity, never a public email lookup. Do not expose invitation bearer tokens.
+    with request.app.state.db() as db:
+        rows = db.execute(
+            select(Invitation, Organization.name)
+            .join(Organization, Organization.id == Invitation.organization_id)
+            .join(User, User.id == Invitation.invited_by)
+            .where(
+                Invitation.email == user.email,
+                Invitation.status == "pending",
+                Invitation.expires_at > time.time(),
+                User.active.is_(True),
+                User.email_verified.is_(True),
+                User.role.in_([Role.OWNER, Role.ADMIN]),
+                User.organization_id == Invitation.organization_id,
+            )
+            .order_by(Invitation.created_at.desc())
+            .limit(25)
+        ).all()
+        return [{"id": i.id, "organization_name": name, "role": i.role, "expires_at": i.expires_at} for i, name in rows]
 
 
 @router.post("/subscription/development-activation")

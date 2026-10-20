@@ -10,6 +10,10 @@ The product-control milestone adds explicit **Can manage employees** designation
 
 ## Working features
 
+- Explicit, audited organization-level free pilot grants work in production without Stripe or development flags. Grants support optional expiry and revocation; unapproved organizations remain denied. See [PILOT-DEPLOYMENT.md](PILOT-DEPLOYMENT.md) for the trusted operator commands, new audit migration and production deployment checklist.
+
+- Call intelligence automatically uses the registered company name, adds conservative speaker hints, extracts Customer/Address/Order #/HAWB with source provenance, and supports audited corrections, structured search and verified-ID related calls. See [SIGNAL-CALL-INTELLIGENCE.md](SIGNAL-CALL-INTELLIGENCE.md) for migration, provider and extraction limits.
+
 - Bulk manifests with independent file validation/progress, persisted server processing, individual retries and same-organization exact-byte duplicate linking (up to 100 files).
 - Tracked employees distinct from login users, audited assign/reassign/unassign, search/filter, deactivation without deletion, and current version-aware category summaries.
 - Corrected speaker revisions mark older QA outdated; explicit reevaluation pins published rubric/context and reuses saved transcription. Current aggregates exclude outdated/history and reflect current employee assignment.
@@ -17,7 +21,7 @@ The product-control milestone adds explicit **Can manage employees** designation
 - Server-persisted per-user module visibility/order and Light/Dark/System appearance.
 
 - Register and verify an account, create a business as Owner, and manage basic account access. Existing ADMIN/SUPERVISOR accounts remain compatible. All operational reads and mutations require verified membership and an active entitlement and are scoped to the signed-in organization.
-- Expiring single-use email verification/password recovery, explicit local development mail outbox or TLS SMTP delivery, and session revocation on reset. Development-only seven-day access activation; no real checkout or payment is claimed.
+- Expiring single-use email verification/password recovery, local development mail outbox, TLS SMTP, Microsoft Graph or Resend delivery, and session revocation on reset. See [RESEND-SETUP.md](RESEND-SETUP.md) for Resend configuration and the explicit one-message test command. Development-only seven-day access activation; no real checkout or payment is claimed.
 - Upload WAV, MP3, or M4A audio; asynchronous persisted queue, private authenticated playback, search, status/review filters, sorting, and pagination.
 - Existing OpenAI transcription and QA adapters; explicit, visibly synthetic demo mode for offline development.
 - Immutable raw text and segments, lossless conversational turns, conservative speaker inference, timestamp seeking, raw view, and audited role corrections. Bulk corrections only apply to an actual shared provider speaker ID.
@@ -102,9 +106,11 @@ Backend `.env` (do not overwrite an existing file):
 | TRANSCRIPTION_MODEL | whisper-1 | Existing successful transcription model |
 | QA_MODEL | gpt-4o-mini | Existing structured QA model |
 | WORKER_ENABLED | true | Single-process queue worker |
-| ENVIRONMENT | development | production enforces HTTPS, secure cookies and SMTP |
+| ENVIRONMENT | development | production enforces HTTPS, secure cookies and configured SMTP/Graph/Resend |
 | DEV_ENTITLEMENTS_ENABLED | false | Explicit local-only seven-day test activation |
-| MAIL_DELIVERY | disabled | disabled, local private outbox, or TLS smtp |
+| MAIL_DELIVERY | disabled | disabled, local private outbox, smtp, graph, or resend |
+| RESEND_API_KEY | empty | Server-only secret; required only for resend; enter locally, never commit |
+| RESEND_FROM | AccountManagement@zoqari.com | Bare mailbox; sent as Zoqari Signal &lt;mailbox&gt; |
 | MAIL_OUTBOX_DIR | ./data/mail-outbox | Private development messages containing one-use links |
 | SMTP_HOST / SMTP_PORT | empty / 587 | STARTTLS mail transport |
 | SMTP_USERNAME / SMTP_PASSWORD / MAIL_FROM | empty | Server-only SMTP credentials and sender |
@@ -152,3 +158,7 @@ For eventual `signal.zoqari.com`, configure HTTPS, secure cookies, exact origin,
 ## Brand provenance
 
 The corporate project at `C:\Users\Thoma\Documents\Zoqari` was used read-only. `BRAND.md`, its CSS, header, self-hosted type and original branding board were inspected. Signal copies the approved raster crops without recoloring/reconstruction. Sora is used for compact headings, Inter for UI/body, Midnight for navigation and Blue for primary actions. Cyan is restrained. The corporate project remains untouched. Historical documents and internal compatibility identifiers may still mention DRIVE; the current product identity is Zoqari Signal.
+# Account lifecycle and controlled pilot
+
+See [ACCOUNT-LIFECYCLE-REVIEW.md](ACCOUNT-LIFECYCLE-REVIEW.md) for account states, separate Platform Admin authority, invitation and pilot approval behavior, migration and verification results. [PILOT-DEPLOYMENT.md](PILOT-DEPLOYMENT.md) contains the proposed deployment/operator procedure. No deployment or live account migration is implied by these documents.
+

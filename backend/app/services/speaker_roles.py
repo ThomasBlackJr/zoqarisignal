@@ -102,3 +102,39 @@ def operator_context(turns, name):
                 turn["speaker_role"] = "DISPATCHER"
                 turn["role_source"] = "operator_context"
             turn["operator_identity_supported"] = True
+
+
+def enhance_roles(turns):
+    """Enrich unknown roles without regrouping source spans or invalidating manual edits."""
+    agent = re.compile(
+        r"^(?:let me (?:pull|look|check)|(?:can|could|may) i (?:please )?(?:have|get|confirm) your (?:order|account|tracking)|i (?:can|will) (?:check|help))\b",
+        re.I,
+    )
+    customer = re.compile(
+        r"^(?:this is [\w '-]+ calling (?:about|because)|i['’]?m calling (?:because|about)|my (?:order|delivery) (?:is|has|was))\b",
+        re.I,
+    )
+    groups = {}
+    for index, turn in enumerate(turns):
+        groups.setdefault(turn["speaker_id"] if turn["speaker_id"] is not None else (index,), []).append(turn)
+    for group in groups.values():
+        cues = set()
+        for turn in group:
+            cues.update(cue_roles(turn["text"]))
+            if turn["speaker_role"] != "UNKNOWN":
+                cues.add(SpeakerRole(turn["speaker_role"]))
+            for sentence in re.split(r"(?<=[.!?])\s+|\n+", turn["text"].strip()):
+                if agent.search(sentence):
+                    cues.add(SpeakerRole.DISPATCHER)
+                if customer.search(sentence):
+                    cues.add(SpeakerRole.CALLER)
+        if len(cues) == 1:
+            for turn in group:
+                if turn["speaker_role"] == "UNKNOWN":
+                    turn["speaker_role"] = next(iter(cues)).value
+                    turn["role_source"] = "speaker_context"
+        elif len(cues) > 1:
+            for turn in group:
+                if turn["role_source"] != "provided_role":
+                    turn["speaker_role"] = "UNKNOWN"
+                    turn["role_source"] = "unknown"

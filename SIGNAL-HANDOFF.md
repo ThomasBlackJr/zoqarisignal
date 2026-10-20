@@ -1,3 +1,15 @@
+# Call intelligence upgrade — 2026-10-17
+
+Implemented automatic registered-company transcription context and optional tenant vocabulary; conservative traceable company wording annotations; stronger identity-aware speaker inference with conflict abstention; structured Customer/Address/Order #/HAWB extraction; revision-aware manual verification/removal and append-only history; scoped attribute search; verified Order/HAWB related calls and persistent exclusions; integrated call-review/library controls. Details, endpoints, migrations, limitations and activation steps are in [SIGNAL-CALL-INTELLIGENCE.md](SIGNAL-CALL-INTELLIGENCE.md).
+
+Migration head is **s957358bec18**, following q735136fac16 and r846247adb17. Install the repaired dependency lock and migrate an installation before restarting it with this source. Only disposable test databases were migrated here. Existing records remain immutable at their source; old calls can extract attributes from saved text without provider usage. No new required environment variables, live provider requests, deployment, Git push, .env change or corporate-site changes.
+
+Speaker inference does not supply audio diarization. UNKNOWN is intentional. Extraction is conservative English rules and confidence is unavailable; verify identifiers before cross-call links appear. Optional vocabulary affects future transcriptions. Manual values/removal tombstones and speaker corrections persist through reprocessing. The worker now acquires its write lock after cache derivation to avoid stale SQLite savepoint snapshots during concurrent batch uploads, with a dedicated forced-contention regression test.
+
+Final validation: **293 backend tests passed, 1 optional PostgreSQL integration skip; all 17 browser workflows passed.** Ruff, frontend ESLint, TypeScript and production build passed. Desktop/mobile screenshots were inspected. The browser runner was interrupted only after all 17 successful outcomes were recorded because Windows test-server teardown lingered, as in the prior checkpoint. No unresolved feature-related test failures remain. Generated Next type references were restored. Production readiness still requires the PostgreSQL/provider/infrastructure work described below.
+
+---
+
 # Product workflow sprint — 2026-10-01
 
 This checkpoint preserves the production safeguards below and the existing live OpenAI configuration. See [SIGNAL-SPRINT-2026-10-01.md](SIGNAL-SPRINT-2026-10-01.md) for the architecture audit, behavior, changed-file inventory, exact tests and remaining limits.

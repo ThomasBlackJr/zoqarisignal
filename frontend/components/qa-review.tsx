@@ -1,4 +1,5 @@
 "use client";
+import { useDrive } from "./shell";
 import { useState } from "react";
 import { api, Detail, date, Rubric } from "@/lib/api";
 import { ScorecardPicker } from "./scorecard-picker";
@@ -93,6 +94,7 @@ export function QAReview({
       setError((e as Error).message);
     }
   }
+  const { user: account } = useDrive();
   async function reevaluate() {
     if (!qa || !active) return;
     setSaving(true);
@@ -432,7 +434,7 @@ export function QAReview({
             </button>
             <button
               className="button primary"
-              disabled={saving}
+              disabled={saving || !account.operational_access}
               onClick={reevaluate}
             >
               Start new evaluation

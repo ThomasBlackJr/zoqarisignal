@@ -1,4 +1,5 @@
 export type User = {
+  is_platform_admin?: boolean;
   organization_name: string | null;
   organization_id: string | null;
   email_verified: boolean;
@@ -17,17 +18,18 @@ export type Account = User & {
   mail_delivery: string;
   checkout_available: boolean;
   onboarding_completed: boolean;
+  organization_suspended?: boolean;
+  pending_invitations?: {
+    id: string;
+    organization_name: string;
+    role: string;
+    expires_at: number;
+  }[];
 };
 
 export function accountDestination(account: Account) {
-  if (
-    !account.email_verified ||
-    !account.organization_id ||
-    !account.operational_access ||
-    !account.can_review
-  )
-    return "/account";
-  return account.onboarding_completed ? "/" : "/onboarding";
+  if (!account.email_verified) return "/verify-email";
+  return "/";
 }
 export type Call = {
   audit_number: string | null;
@@ -106,6 +108,16 @@ export type Detail = Call & {
     provider: string;
     model: string;
     conversation?: Conversation;
+    company_corrections?:
+      | {
+          source_start: number;
+          source_end: number;
+          original: string;
+          replacement: string;
+          method: string;
+          similarity: number;
+        }[]
+      | null;
   } | null;
   evaluation: {
     stale?: boolean;

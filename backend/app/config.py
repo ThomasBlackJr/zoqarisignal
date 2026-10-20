@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.db import database_url
@@ -42,7 +42,17 @@ class Settings(DatabaseSettings):
     qa_model: str = "gpt-4o-mini"
     worker_enabled: bool = True
     dev_entitlements_enabled: bool = False
-    mail_delivery: Literal["disabled", "local", "smtp"] = "disabled"
+    mail_delivery: Literal["disabled", "local", "smtp", "graph", "resend"] = "disabled"
+    resend_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    resend_from: str = "AccountManagement@zoqari.com"
+    m365_tenant_id: str = Field(
+        default="", pattern=r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$"
+    )
+    m365_client_id: str = Field(
+        default="", pattern=r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$"
+    )
+    m365_client_secret: SecretStr = Field(default=SecretStr(""), repr=False)
+    m365_sender: str = "AccountManagement@zoqari.com"
     mail_outbox_dir: Path = Path("./data/mail-outbox")
     smtp_host: str = ""
     smtp_port: int = 587
@@ -78,9 +88,31 @@ class Settings(DatabaseSettings):
         ):
             raise ValueError("Development mail/entitlements require development mode and a loopback frontend")
         if self.environment == "production" and (
-            not self.cookie_secure or not self.frontend_origin.startswith("https://") or self.mail_delivery != "smtp"
+            not self.cookie_secure
+            or not self.frontend_origin.startswith("https://")
+            or self.mail_delivery not in {"smtp", "graph", "resend"}
         ):
-            raise ValueError("Production requires HTTPS, secure cookies and configured SMTP delivery")
+            raise ValueError(
+                "Production requires HTTPS, secure cookies and configured SMTP or Graph or Resend delivery"
+            )
+        if self.mail_delivery == "resend":
+            from .account_schemas import Email
+
+            key = self.resend_api_key.get_secret_value()
+            if (
+                not key.startswith("re_")
+                or len(key) <= 3
+                or any(c.isspace() or not c.isascii() or not c.isprintable() for c in key)
+            ):
+                raise ValueError("Resend delivery requires a valid RESEND_API_KEY")
+            Email(email=self.resend_from)
+            self.resend_from = self.resend_from.strip()
+        if self.mail_delivery == "graph":
+            from .account_schemas import Email
+
+            if not self.m365_tenant_id or not self.m365_client_id or not self.m365_client_secret.get_secret_value():
+                raise ValueError("Graph delivery requires M365_TENANT_ID, M365_CLIENT_ID and M365_CLIENT_SECRET")
+            self.m365_sender = Email(email=self.m365_sender).email
         if self.mail_delivery == "smtp" and (not self.smtp_host or not self.mail_from):
             raise ValueError("SMTP_HOST and MAIL_FROM are required for SMTP delivery")
         if "openai" in (self.transcription_provider, self.qa_provider) and not self.openai_api_key:

@@ -15,7 +15,7 @@ class TranscriptionService(Protocol):
     name: str
     model: str
 
-    def transcribe(self, path: Path) -> Transcription: ...
+    def transcribe(self, path: Path, *, context: dict | None = None) -> Transcription: ...
 
 
 class QAService(Protocol):
@@ -37,10 +37,11 @@ DEMO_LINES = [
 
 
 class DemoTranscription:
+    supports_context = True
     name = "demo"
     model = "synthetic-fixture-v1"
 
-    def transcribe(self, path: Path) -> Transcription:
+    def transcribe(self, path: Path, *, context: dict | None = None) -> Transcription:
         # Deliberately synthetic: never suggest these words came from the uploaded recording.
         return Transcription(text="\n".join(DEMO_LINES), segments=[Segment(text=line) for line in DEMO_LINES])
 
@@ -107,17 +108,22 @@ class DemoQA:
 
 class OpenAITranscription:
     name = "openai"
+    supports_context = True
 
     def __init__(self, settings: Settings):
         self.client = OpenAI(api_key=settings.openai_api_key, timeout=180, max_retries=0)
         self.model = settings.transcription_model
 
-    def transcribe(self, path: Path) -> Transcription:
+    def transcribe(self, path: Path, *, context: dict | None = None) -> Transcription:
         options = (
             {"response_format": "verbose_json", "timestamp_granularities": ["segment"]}
             if self.model == "whisper-1"
             else {"response_format": "json"}
         )
+        if context and self.model in {"whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"}:
+            from .company_context import provider_prompt
+
+            options["prompt"] = provider_prompt(context)
         with path.open("rb") as audio:
             result = self.client.audio.transcriptions.create(model=self.model, file=audio, **options)
         data = result.model_dump()

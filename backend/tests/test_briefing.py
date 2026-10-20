@@ -175,7 +175,10 @@ def test_existing_role_boundary(signed_in, app, wav_bytes, role, allowed):
     with app.state.db() as db:
         db.scalar(select(User).where(User.email == "admin@example.test")).role = role
         db.commit()
-    assert signed_in.get("/briefing").status_code == (200 if allowed else 403)
+    assert signed_in.get("/briefing").status_code == 200
+    if not allowed:
+        assert signed_in.get("/briefing").json()["recent"] == []
+        assert signed_in.get("/briefing").json()["issues"] == []
     assert signed_in.get("/briefing/issues/" + issue["id"]).status_code == (200 if allowed else 403)
     r = signed_in.post("/briefing/issues/" + issue["id"] + "/generate", json={"fingerprint": "a" * 64})
     assert r.status_code == (409 if allowed else 403)

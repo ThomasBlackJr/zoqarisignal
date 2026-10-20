@@ -3,7 +3,9 @@ import threading
 from sqlalchemy import select, update
 
 from ..logging import event
-from ..models import Call, Evaluation, Status, Transcript, Rubric, FlagNotification
+from ..models import Call, Evaluation, Status, Transcript, Rubric, FlagNotification, Organization
+from .company_context import vocabulary, company_annotations
+from .call_attributes import sync_attributes
 from .flags import detect, deliver_one
 from .account_mail import build_mail
 from ..schemas import Transcription
@@ -59,14 +61,17 @@ class Processor:
                 db.commit()
                 if call.transcript is None:
                     event("transcription_started", call_id)
+                    context = vocabulary(db.get(Organization, call.organization_id))
+                    options = {"context": context} if getattr(self.transcription, "supports_context", False) else {}
                     output = Transcription.model_validate(
-                        self.transcription.transcribe(self.settings.upload_dir / call.storage_name)
+                        self.transcription.transcribe(self.settings.upload_dir / call.storage_name, **options)
                     )
                     db.add(
                         Transcript(
                             call_id=call_id,
                             text=output.text,
                             segments=[s.model_dump() for s in output.segments],
+                            company_corrections=company_annotations(output.text, context),
                             provider=self.transcription.name,
                             model=self.transcription.model,
                         )
@@ -76,13 +81,27 @@ class Processor:
                     db.commit()
                     db.refresh(call)
                     event("transcription_completed", call_id)
-                # Derived presentation must never invalidate a saved transcript
-                # or prevent QA from consuming its original text.
+                # Derive before opening a savepoint: concurrent batch ingestion
+                # must not invalidate a SQLite read snapshot when it upgrades
+                # to a write. End reads and acquire the call's write lock first.
+                transcript = call.transcript
+                derived = None
                 try:
-                    with db.begin_nested():
-                        call.transcript.conversation = conversation_for(call.transcript)
+                    derived = conversation_for(transcript)
                 except Exception as exc:
                     event("conversation_cache_failed", call_id, error_type=type(exc).__name__)
+                db.commit()
+                stage = "intelligence"
+                db.execute(
+                    update(Call)
+                    .where(Call.id == call.id, Call.organization_id == call.organization_id)
+                    .values(id=Call.id)
+                )
+                if derived is not None:
+                    with db.begin_nested():
+                        transcript.conversation = derived
+                sync_attributes(db, call)
+                db.commit()
                 stage = "flags"
                 detect(db, call)
                 db.commit()

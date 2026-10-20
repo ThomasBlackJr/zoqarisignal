@@ -1,0 +1,56 @@
+.account-grid:has(.platform-console) {
+  grid-template-columns: 1fr;
+  max-width: 1100px;
+}
+.account-grid:has(.platform-console) .account-intro {
+  display: none;
+}
+.platform-console section {
+  border-top: 1px solid #b6c7df;
+  margin-top: 24px;
+  padding-top: 20px;
+}
+.platform-console .table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.platform-console table {
+  min-width: 560px;
+}
+.platform-console table th:first-child {
+  min-width: 180px;
+}
+.platform-console ul {
+  padding-left: 0;
+  list-style: none;
+}
+.platform-console li {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.platform-console button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.platform-console input,
+.platform-console textarea {
+  display: block;
+  width: 100%;
+  margin: 8px 0 16px;
+}
+.platform-console textarea {
+  min-height: 80px;
+}
+.platform-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+.platform-history article {
+  border-left: 3px solid #6984aa;
+  padding-left: 14px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}

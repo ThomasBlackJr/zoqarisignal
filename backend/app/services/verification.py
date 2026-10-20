@@ -7,7 +7,7 @@ from ..models import User, VerificationCode, AccountToken
 from ..logging import event
 
 
-def issue_code(db, user, request):
+def issue_code(db, user, request, *, preserve_challenge=False):
     db.execute(update(User).where(User.id == user.id).values(active=User.active))
     old = db.get(VerificationCode, user.id, populate_existing=True)
     now = time.time()
@@ -20,7 +20,9 @@ def issue_code(db, user, request):
     code = f"{secrets.randbelow(1000000):06d}"
     challenge = secrets.token_urlsafe(32)
     row = old or VerificationCode(user_id=user.id)
-    row.challenge_hash, row.code_hash = token_hash(challenge), hasher.hash(code)
+    if not (preserve_challenge and old):
+        row.challenge_hash = token_hash(challenge)
+    row.code_hash = hasher.hash(code)
     row.sent_at, row.expires_at, row.attempts = now, now + 900, 0
     db.add(row)
     # Resend replaces previously-issued verification links too; recovery/invitations untouched.

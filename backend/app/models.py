@@ -2,7 +2,7 @@ import time
 import uuid
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -41,6 +41,8 @@ class Organization(Base):
     entitlement_source: Mapped[str | None] = mapped_column(String(30))
     entitlement_expires_at: Mapped[float | None] = mapped_column(Float)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    transcription_vocabulary: Mapped[dict | None] = mapped_column(JSON)
+    suspended: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class User(Base):
@@ -53,8 +55,28 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(30), default=Role.SUPERVISOR)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[float | None] = mapped_column(Float, default=time.time)
+    last_login_at: Mapped[float | None] = mapped_column(Float)
     organization: Mapped[Organization | None] = relationship()
+    platform_authority: Mapped["PlatformAdministrator | None"] = relationship(uselist=False)
     calls: Mapped[list["Call"]] = relationship(back_populates="uploader")
+
+
+class PlatformAdministrator(Base):
+    __tablename__ = "platform_administrators"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class AccountEvent(Base):
+    __tablename__ = "account_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True)
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    action: Mapped[str] = mapped_column(String(40))
+    reason: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
 class Session(Base):
@@ -80,7 +102,8 @@ class EntitlementEvent(Base):
     actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String(30))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
-    expires_at: Mapped[float] = mapped_column(Float)
+    expires_at: Mapped[float | None] = mapped_column(Float)
+    reason: Mapped[str | None] = mapped_column(String(500))
 
 
 class Call(Base):
@@ -125,10 +148,47 @@ class Transcript(Base):
     segments: Mapped[list] = mapped_column(JSON)
     # Presentation-only cache. Original text/segments remain the source of truth.
     conversation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    company_corrections: Mapped[list | None] = mapped_column(JSON)
     provider: Mapped[str] = mapped_column(String(50))
     model: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
     call: Mapped[Call] = relationship(back_populates="transcript")
+
+
+class CallAttribute(Base):
+    __tablename__ = "call_attributes"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "call_id", "key", name="uq_call_attribute"),
+        Index("ix_attribute_lookup", "organization_id", "key", "normalized_value"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    call_id: Mapped[str] = mapped_column(ForeignKey("calls.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(80))
+    value: Mapped[str | None] = mapped_column(String(500))
+    normalized_value: Mapped[str | None] = mapped_column(String(500))
+    confidence: Mapped[float | None] = mapped_column(Float)
+    source_start: Mapped[int | None] = mapped_column(Integer)
+    source_end: Mapped[int | None] = mapped_column(Integer)
+    source_segment: Mapped[int | None] = mapped_column(Integer)
+    timestamp: Mapped[float | None] = mapped_column(Float)
+    source_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    origin: Mapped[str] = mapped_column(String(20), default="auto")
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class AttributeEvent(Base):
+    __tablename__ = "attribute_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    call_id: Mapped[str] = mapped_column(ForeignKey("calls.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(80))
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    previous: Mapped[dict | None] = mapped_column(JSON)
+    current: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
 class Evaluation(Base):
@@ -420,6 +480,19 @@ class BillingEvent(Base):
     __tablename__ = "billing_events"
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     event_type: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[float] = mapped_column(Float, default=time.time)
+
+
+class RelatedExclusion(Base):
+    __tablename__ = "related_exclusions"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "left_call_id", "right_call_id", name="uq_related_exclusion"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    left_call_id: Mapped[str] = mapped_column(ForeignKey("calls.id", ondelete="CASCADE"), index=True)
+    right_call_id: Mapped[str] = mapped_column(ForeignKey("calls.id", ondelete="CASCADE"), index=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[float] = mapped_column(Float, default=time.time)
 
 
