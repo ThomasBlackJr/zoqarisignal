@@ -10,6 +10,8 @@ export type User = {
 };
 export type Account = User & {
   operational_access: boolean;
+  suspended: boolean;
+  access_message: string | null;
   can_review: boolean;
   subscription_status: string;
   entitlement_source: string | null;

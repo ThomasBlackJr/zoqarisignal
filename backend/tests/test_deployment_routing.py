@@ -89,7 +89,7 @@ def test_account_preferences_and_representative_resources(signed_in):
     ]:
         service, internal = routed("/api" + path)
         assert service == "backend"
-        assert signed_in.get(internal).status_code == 200, path
+        assert signed_in.get(internal).status_code == (403 if path == "/billing" else 200), path
 
 
 def test_auth_csrf_upload_and_webhook_remain_backend_owned(client, wav_bytes):

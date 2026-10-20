@@ -18,6 +18,7 @@ from .services.entitlements import operational_access
 from .services.rubric import create_starter_rubric
 from .services.verification import issue_code, redeem_code
 from .models import VerificationCode
+from .models import PlatformEvent
 from .schemas import StrictModel
 from pydantic import Field
 
@@ -53,6 +54,7 @@ def limit(request: Request):
 def issue_session(db, user, request, response):
     settings = request.app.state.settings
     now = time.time()
+    user.last_session_at = now
     old = request.cookies.get(COOKIE)
     if old:
         db.execute(delete(Session).where(Session.token_hash == token_hash(old)))
@@ -290,6 +292,8 @@ def account(request: Request, user=Depends(current_user)):
     return {
         **user_view(user),
         "operational_access": access,
+        "suspended": bool(organization and organization.suspended),
+        "access_message": None if access or organization is None else INACTIVE_ACCESS_MESSAGE,
         "can_review": user.role in {Role.OWNER, Role.ADMIN, Role.MANAGER, Role.REVIEWER, Role.SUPERVISOR},
         "subscription_status": organization.subscription_status if organization else "inactive",
         "entitlement_source": organization.entitlement_source if organization else None,
@@ -299,7 +303,8 @@ def account(request: Request, user=Depends(current_user)):
         and user.role in {Role.OWNER, Role.ADMIN},
         "mail_delivery": settings.mail_delivery,
         "checkout_available": bool(
-            request.app.state.settings.stripe_secret_key and request.app.state.settings.stripe_webhook_secret
+            user.role == Role.OWNER
+            and request.app.state.settings.stripe_secret_key and request.app.state.settings.stripe_webhook_secret
         ),
         "onboarding_completed": organization.onboarding_completed if organization else False,
         "organization_suspended": bool(organization and organization.suspended),

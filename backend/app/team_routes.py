@@ -129,6 +129,12 @@ def resolve(db, token=None, consume=False, *, invitation_id=None, email=None):
     else:
         value = db.scalar(select(Invitation).where(*conditions))
     inviter = db.get(User, value.invited_by) if value else None
+    authority = db.get(PlatformAdministrator, inviter.id) if inviter and value.platform_issued else None
+    authorized = bool(inviter and (
+        (value.platform_issued and authority and authority.active and inviter.email_verified)
+        or (not value.platform_issued and inviter.organization_id == value.organization_id
+            and inviter.role in {"OWNER", "ADMIN"} and value.role != "OWNER")
+    ))
     if (
         not value
         or not inviter
@@ -156,6 +162,7 @@ def accept(body: Token, user=Depends(current_user), db=Depends(get_db)):
     value = resolve(db, body.token, consume=True)
     if user.email != value.email:
         raise HTTPException(403, "Sign in with the invited email address.")
+    previous_role = user.role
     changed = db.execute(
         update(User)
         .where(User.id == user.id, User.organization_id.is_(None), User.active.is_(True))

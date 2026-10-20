@@ -94,6 +94,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Link href="/platform">Platform administration</Link>
           )}
           <nav aria-label="Workspace">
+            {session.user.is_platform_admin && (
+              <Link href="/platform">Zoqari Admin</Link>
+            )}
             {[
               { href: "/", title: "Dashboard", Icon: LayoutDashboard },
               { href: "/calls", title: "Calls / Audits", Icon: Headphones },

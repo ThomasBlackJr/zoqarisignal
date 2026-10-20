@@ -47,6 +47,13 @@ class Organization(Base):
 
 class User(Base):
     __tablename__ = "users"
+    first_name: Mapped[str | None] = mapped_column(String(100))
+    last_name: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[float | None] = mapped_column(Float, default=time.time)
+    updated_at: Mapped[float | None] = mapped_column(Float)
+    deactivated_at: Mapped[float | None] = mapped_column(Float)
+    last_session_at: Mapped[float | None] = mapped_column(Float)
+    admin_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), index=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
@@ -336,6 +343,7 @@ class EmployeeAssignment(Base):
 
 class Invitation(Base):
     __tablename__ = "invitations"
+    platform_issued: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=identifier)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
     invited_by: Mapped[str] = mapped_column(ForeignKey("users.id"))

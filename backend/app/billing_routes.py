@@ -17,8 +17,8 @@ router = APIRouter(prefix="/billing")
 
 
 def manager(user=Depends(current_user)):
-    if not user.email_verified or not user.organization_id or user.role not in {Role.OWNER, Role.ADMIN}:
-        raise HTTPException(403, "A verified organization Owner or Admin must manage billing")
+    if not user.email_verified or not user.organization_id or user.role != Role.OWNER:
+        raise HTTPException(403, "Only the verified organization Owner can manage billing")
     return user
 
 

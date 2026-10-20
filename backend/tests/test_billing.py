@@ -7,13 +7,18 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy import select, func
 
-from app.models import BillingAccount, BillingEvent, Organization, LEGACY_ORG
+from app.models import BillingAccount, BillingEvent, Organization, LEGACY_ORG, User
 from app.services.billing import StripeBilling, PRICES
 from app.services.entitlements import operational_access
 
 
 @pytest.fixture
 def billing(app):
+    with app.state.db() as db:
+        user = db.scalar(select(User).where(
+            User.email == "admin@example.test"))
+        user.role = "OWNER"
+        db.commit()
     settings = app.state.settings
     settings.stripe_secret_key = "sk_test_fixture_only"
     settings.stripe_webhook_secret = "whsec_fixture_only"
